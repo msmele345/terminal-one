@@ -1,0 +1,159 @@
+# Engine Config Update Runbook (V1)
+
+> **Purpose:** how to change the recommendation engine's tuning (deltas, DTE windows, risk cap, IV-rank cutoffs, indicator weights — all of strategy-matrix §9) in V1, before the V1.5 in-app Settings screen exists.
+> **Resolves PRD FR-30.** Mechanism per PRD D21 / strategy-matrix §9.1.
+> **Status:** Draft — exact table/column names are confirmed in M2; the procedure and guarantees below are stable.
+
+---
+
+## TL;DR
+
+Config is a **versioned JSONB row** in Postgres. You never edit a value in place — you **insert a new version and activate it**. The engine reads the active config at the **start of its next run** (EOD batch or lever-pull), so a change is live within one run, **no redeploy**.
+
+```
+inspect active  →  draft new JSON  →  insert new version  →  activate (single txn)  →  verify  →  (rollback = reactivate old version)
+```
+
+---
+
+## 0. When to use this
+
+- You want to tune the engine (e.g., trade 0.30Δ credits instead of 0.20Δ, or drop the risk cap to 2%).
+- You want to roll back to a previous tuning.
+- You want to inspect exactly which config produced a past recommendation (read the rec's `configVersion`, then read that version).
+
+Do **not** hand-edit the `config` of an existing row — it breaks the audit trail that makes your paper-trade ledger interpretable.
+
+---
+
+## 1. Prerequisites
+
+- Access to the Railway project and its Postgres instance.
+- One of:
+  - **Railway CLI** — `railway login`, then `railway connect Postgres` (opens `psql` against the prod DB), or `railway run psql "$DATABASE_URL"`.
+  - **psql** with the connection string from Railway → Postgres → *Connect* tab (`postgresql://…`).
+- Comfort reading/writing JSON. Keep `docs/strategy-matrix.md` §9 open as the reference for valid keys/shape.
+
+> ⚠️ This is the **production** database (single-user app, single environment). There is no staging copy. Work inside a transaction (§4) so a mistake rolls back cleanly.
+
+---
+
+## 2. The table (recap)
+
+```
+engine_config(
+  version      serial primary key,
+  config       jsonb        not null,   -- the entire strategy-matrix §9 object
+  is_active    boolean      not null,   -- exactly ONE row is true
+  note         text,                    -- why this version exists
+  created_at   timestamptz  not null default now()
+)
+```
+
+Invariant: **exactly one** row has `is_active = true` (enforced by a partial unique index). The engine runs `SELECT config FROM engine_config WHERE is_active = true`.
+
+---
+
+## 3. Inspect the currently active config
+
+```sql
+SELECT version, note, created_at
+FROM engine_config
+WHERE is_active = true;
+
+-- full body of the active config:
+SELECT jsonb_pretty(config)
+FROM engine_config
+WHERE is_active = true;
+```
+
+Copy the JSON output — it's your starting point. Make your edits in a text editor (e.g., change `engine.strikes.creditShortDelta.confident` from `0.30` to `0.33`).
+
+---
+
+## 4. Insert a new version and activate it (single transaction)
+
+Run as one transaction so you never end up with zero or two active rows. Paste your full edited JSON in place of `'<PASTE_EDITED_JSON_HERE>'`.
+
+```sql
+BEGIN;
+
+-- 1) deactivate whatever is active now
+UPDATE engine_config SET is_active = false WHERE is_active = true;
+
+-- 2) insert the new version as active
+INSERT INTO engine_config (config, is_active, note)
+VALUES (
+  '<PASTE_EDITED_JSON_HERE>'::jsonb,
+  true,
+  'raise confident credit short delta 0.30 -> 0.33'   -- describe WHY
+);
+
+-- 3) sanity check BEFORE committing: exactly one active row
+SELECT count(*) AS active_rows FROM engine_config WHERE is_active = true;  -- must be 1
+
+COMMIT;   -- if active_rows != 1 or anything looks wrong: ROLLBACK;
+```
+
+If the count isn't `1`, or the insert errored (bad JSON, bounds rejection — see §6), run `ROLLBACK;` and nothing changed.
+
+---
+
+## 5. Verify it took effect
+
+```sql
+-- newest active version is what you just wrote
+SELECT version, note, created_at FROM engine_config WHERE is_active = true;
+```
+
+The change is picked up on the **next engine run**:
+- **On-demand:** pull the lever in the app and confirm recommendations reflect the new tuning.
+- **Scheduled:** it applies at the next EOD batch.
+- New recommendations will be **stamped with the new `configVersion`**; older recs keep their original version (by design).
+
+> The app does not need a restart — `EngineConfigProvider` reads the active row at the start of each run.
+
+---
+
+## 6. Validation / common rejections
+
+The app bounds-checks config before activation (PRD FR-29). If your INSERT is rejected, check:
+
+| Field | Valid range |
+|-------|-------------|
+| any `*Delta` | `[0, 1]` |
+| `sizing.perTradeRiskPct` | `(0, 0.25]` |
+| `regime.ivRankLow` / `ivRankHigh` | `[0, 100]`, and `low < high` |
+| `signal.directionThreshold` | `(0, 1)` |
+| DTE windows | positive integers, `target` inside `window`, `min ≤ max` |
+| `ranking.topN` | `≥ 1` |
+
+Also: malformed JSON (missing brace/comma) fails the `::jsonb` cast — paste the *whole* object, not a fragment.
+
+---
+
+## 7. Rollback
+
+Reactivating a prior version is a one-line flip (replace `N` with the version you want):
+
+```sql
+BEGIN;
+UPDATE engine_config SET is_active = false WHERE is_active = true;
+UPDATE engine_config SET is_active = true  WHERE version = N;
+SELECT count(*) FROM engine_config WHERE is_active = true;   -- must be 1
+COMMIT;
+```
+
+The next run reverts to that tuning. Nothing is deleted — every version stays for the audit trail.
+
+---
+
+## 8. Factory reset
+
+To return to the shipped defaults, reactivate **version 1** (the seed from strategy-matrix §9) using the §7 rollback with `N = 1`. If v1 was ever altered, the canonical defaults always live in `docs/strategy-matrix.md` §9 — re-insert them as a new version.
+
+---
+
+## 9. Superseded by V1.5
+
+The V1.5 **Settings screen** reads/writes this same `engine_config` table (same versioning + stamping guarantees) through the app UI, making this manual runbook optional thereafter.
