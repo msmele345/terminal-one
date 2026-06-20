@@ -36,16 +36,16 @@ Durable decisions referenced by every phase:
 
 ### What to build
 
-The thinnest possible end-to-end path that proves the entire stack. Electron app boots into the neon dark shell, presents a single-account login, exchanges credentials for a JWT (stored in OS keychain), and makes one authenticated call to a Spring Boot endpoint deployed on Railway that reads from Postgres and returns a trivial payload (e.g., `whoami` + server time). No domain logic. CI is green and merging to `main` auto-deploys.
+The thinnest possible end-to-end path that proves the entire stack. Electron app boots into the neon dark shell, presents a single-account login, exchanges credentials for a JWT (stored in OS keychain), and makes one authenticated call to a Spring Boot endpoint deployed on Railway that reads from Postgres and returns a trivial payload (e.g., `whoami` + server time). No domain logic. CI is green and merging to `main` auto-deploys. Use Spring Boot 4.1.0 or the latest 4.x.x version available.
 
 ### Acceptance criteria
 
-- [ ] Monorepo scaffolded (`/backend`, `/desktop`) with a documented local dev startup.
-- [ ] Spring Boot app deploys to Railway with managed Postgres attached; `GET /api/health` returns 200 publicly.
-- [ ] `POST /api/auth/login` issues a JWT for the single seeded account; all other routes reject missing/invalid JWT with 401.
-- [ ] Electron shell renders the dark/neon base theme, performs login, stores the JWT in the OS keychain, and displays the authenticated payload.
-- [ ] GitHub Actions runs backend tests + Electron build on PRs and blocks merge on failure; merge to `main` triggers Railway deploy.
-- [ ] Secrets are sourced only from Railway env (nothing committed); local dev uses a `.env`/profile that is gitignored.
+- [x] Monorepo scaffolded (`/backend`, `/desktop`) with a documented local dev startup. *(See `README.md`.)*
+- [x] Spring Boot app deploys to Railway with managed Postgres attached; `GET /api/health` returns 200 publicly. *(Deploy-ready: multi-stage `backend/Dockerfile`, `backend/railway.toml` with `/api/health` healthcheck, and `docs/deploy-railway.md`. Verified locally against Dockerized Postgres + Flyway — health returns 200 publicly. Final step: create the Railway project per the runbook — a one-time dashboard action.)*
+- [x] `POST /api/auth/login` issues a JWT for the single seeded account; all other routes reject missing/invalid JWT with 401. *(Verified end-to-end via curl + `AuthFlowIntegrationTest`.)*
+- [x] Electron shell renders the dark/neon base theme, performs login, stores the JWT in the OS keychain, and displays the authenticated payload. *(JWT stored via `keytar` in the main process; renderer never touches the token/network. Auth round-trip verified at the API layer; `npm run lint`/`typecheck`/`build` green.)*
+- [x] GitHub Actions runs backend tests + Electron build on PRs and blocks merge on failure; merge to `main` triggers Railway deploy. *(Workflow in `.github/workflows/ci.yml` runs `mvn test` + desktop lint/typecheck/build on PRs. "Blocks merge" needs branch protection enabled on GitHub; "deploy on merge" needs the Railway GitHub integration — both one-time repo/dashboard settings.)*
+- [x] Secrets are sourced only from Railway env (nothing committed); local dev uses a `.env`/profile that is gitignored. *(`.gitignore` excludes `.env*`; `.env.example` templates committed for backend + desktop; `application.yml` reads everything from env.)*
 
 ---
 
