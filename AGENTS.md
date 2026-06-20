@@ -16,11 +16,11 @@ See @plans/terminal-one.md
 
 
 # Git Strategy and Instructions
-- Create feature branches off of develop for each new feature or task. Name branches using the format `feature/short-description` (e.g., `feature/spotify-integration`).
+- Create feature branches off of develop for each new feature or task. Name branches using the format `feat/short-description` (e.g., `feature/spotify-integration`).
 - Git Strategy is Git Flow with the following branches:
     - `main` - production ready code
     - `develop` - latest development code, merged from feature branches
-    - `feature/*` - individual feature branches created from develop, merged back into develop when complete
+    - `feat/*` - individual feature branches created from develop, merged back into develop when complete
     - `release/*` - created from develop when preparing for a release, merged into main
 - PRs should be used to merge feature branches into develop, and release branches into main. PRs should be reviewed and approved by me before merging.
 - Use Squash and Merge for all PRs to keep a clean commit history.

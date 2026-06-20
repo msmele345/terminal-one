@@ -1,0 +1,29 @@
+# ---- Secrets / env (never commit) ----
+.env
+.env.*
+!.env.example
+*.local
+
+# ---- Java / Maven (backend) ----
+backend/target/
+*.class
+*.jar
+!**/.mvn/wrapper/maven-wrapper.jar
+hs_err_pid*
+
+# ---- Node / Electron (desktop) ----
+node_modules/
+desktop/dist/
+desktop/dist-electron/
+desktop/release/
+desktop/out/
+npm-debug.log*
+yarn-error.log*
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+*.swp
