@@ -20,7 +20,7 @@ terminal-one/
 └── .github/     CI (test gate)
 ```
 
-## Status — Phase 1: Walking skeleton ✅
+## Status — Phase 1: Walking skeleton - DONE
 
 The thinnest end-to-end slice: Electron neon shell → single-account login → JWT (stored in
 the OS keychain) → authenticated call to Spring Boot → Postgres-backed identity. No domain
