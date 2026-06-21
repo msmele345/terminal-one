@@ -1,8 +1,11 @@
 name: CI
 
-# Test gate for PRs (D12). Merge to main is blocked unless both jobs pass.
-# Railway auto-deploys the backend on merge to main via its GitHub integration
-# (configured in the Railway dashboard, watching this repo's main branch).
+# Test gate for PRs (D12). On a push to a deploy branch, the backend is deployed
+# to Railway ONLY after both test jobs pass (Actions-gated deploy):
+#   develop -> Railway `staging` environment
+#   main    -> Railway `production` environment
+# The `deploy` job uses GitHub Environments so each maps to its own RAILWAY_TOKEN
+# (an environment-scoped Railway project token). See docs/deploy-railway.md.
 on:
   pull_request:
     branches: [main, develop]
@@ -51,3 +54,26 @@ jobs:
         run: npm run typecheck
       - name: Build (electron-vite bundle)
         run: npm run build
+
+  deploy:
+    name: Deploy backend (Railway)
+    # Gate: only deploy after BOTH test jobs pass...
+    needs: [backend, desktop]
+    # ...and only on a direct push to a deploy branch (never on PRs).
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-latest
+    # Branch -> GitHub Environment. Each Environment holds its own RAILWAY_TOKEN
+    # (scoped to that Railway environment) and can carry protection rules.
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+      - name: Deploy
+        env:
+          # Resolves to the selected Environment's secret (prod vs staging token).
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        # Run from the repo root; Railway builds using the service's configured
+        # Root Directory (backend). --ci streams build logs then exits non-zero
+        # on failure so a bad deploy fails the workflow.
+        run: railway up --service "${{ vars.RAILWAY_SERVICE_NAME || 'terminal-one-backend' }}" --ci
