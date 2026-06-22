@@ -1,27 +1,17 @@
 # Deploy — Railway (backend)
 
 Terminal One's backend runs always-on on **Railway** (D10, D11): managed Postgres, Docker
-build. Deploys are **Actions-gated** — GitHub Actions runs the test gate and only then runs
-`railway up` (see [Actions-gated deploy](#actions-gated-deploy)). The Electron client is
-built/distributed separately (D13).
+build, git-push deploy. A single `production` environment auto-deploys via Railway's native
+GitHub integration. The Electron client is built/distributed separately (D13).
 
-Two Railway **environments** in one project:
-
-| Branch | Railway environment | Notes |
-|--------|---------------------|-------|
-| `main` | `production` | always-on (runs the EOD batch, later phases) |
-| `develop` | `staging` | enable **App Sleeping** to keep costs near-zero |
-
-## One-time setup (production environment)
+## One-time setup
 
 1. **Create a Railway project** and connect this GitHub repo.
 2. **Add a Postgres plugin** to the project. Railway injects `DATABASE_URL` and the `PG*`
    variables into the environment.
 3. **Add a backend service** from the repo and set its **Root Directory** to `backend`.
    Railway reads [`backend/railway.toml`](../backend/railway.toml) and builds the
-   [`backend/Dockerfile`](../backend/Dockerfile). Note the **service name** — it's passed to
-   `railway up --service` (defaults to `terminal-one-backend`; override with the
-   `RAILWAY_SERVICE_NAME` GitHub repo variable if yours differs).
+   [`backend/Dockerfile`](../backend/Dockerfile).
 4. **Set service env vars** (Settings → Variables). Map the Railway Postgres vars to the
    Spring datasource and set the app secrets:
 
@@ -37,6 +27,8 @@ Two Railway **environments** in one project:
 
    > `${{Postgres.*}}` is Railway's reference syntax — it pulls live values from the Postgres
    > plugin without copying secrets. `PORT` is injected automatically; the app reads it.
+   > Watch for stray whitespace when pasting the URL — a trailing space breaks the host/port
+   > parse and surfaces as a misleading connection/auth error.
 
 5. **Health check**: `railway.toml` sets `healthcheckPath = /api/health`. Confirm the public
    URL returns `200`:
@@ -45,48 +37,24 @@ Two Railway **environments** in one project:
    curl https://<your-service>.up.railway.app/api/health
    ```
 
-## Staging environment (develop)
+## Continuous deploy (Railway native)
 
-1. In the project, **New Environment** → `staging` (fork `production` to duplicate the service
-   + Postgres topology).
-2. On the staging backend service, set the **Root Directory** to `backend` (carried over by the
-   fork) and give it its **own Postgres** — re-point `SPRING_DATASOURCE_*` at the staging
-   Postgres and set fresh `JWT_SECRET` / `APP_USER_*` (variables are per-environment, so prod
-   secrets never leak into staging).
-3. Enable **App Sleeping** (service Settings → serverless) so staging scales to zero when idle.
-   Only `production` needs to stay always-on; staging wakes on request (a few-second cold start).
-   This keeps the second environment in the low-single-digit-dollars range.
+The backend service is connected to GitHub and **auto-deploys on push** to its connected branch
+(set this to `main` in the service's Settings → Source). The merge flow is:
 
-> Do **not** point the Railway service at a branch for auto-deploy — deploys are driven by
-> GitHub Actions (below), so the test gate is a true precondition.
+```
+feature/* → PR → develop → PR → main → Railway redeploys production
+```
 
-## Actions-gated deploy
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) runs the backend tests
++ desktop build/lint/typecheck on every PR. Enabling **branch protection** on `main` (and
+`develop`) that requires the `backend` + `desktop` checks keeps red builds from merging — so in
+practice only tested code reaches the connected branch Railway deploys.
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs the backend tests + desktop
-build/lint/typecheck on every PR and push. On a **push** to a deploy branch, a `deploy` job
-runs **only after both test jobs pass** and calls `railway up`:
-
-- push to `develop` → Railway **staging**
-- push to `main` → Railway **production**
-
-### Wire it up (GitHub side)
-
-1. **Create two project tokens in Railway** — one per environment:
-   Project → Settings → Tokens → *New Token*, scoped to `production`, then another scoped to
-   `staging`. (Project tokens are environment-scoped and free; they don't consume a seat.)
-2. **Create two GitHub Environments** (repo → Settings → Environments): `production` and
-   `staging`. In each, add a secret named **`RAILWAY_TOKEN`** set to that environment's Railway
-   project token. The workflow selects the right Environment by branch, so `secrets.RAILWAY_TOKEN`
-   resolves to the matching token automatically.
-3. *(Optional)* If your Railway service isn't named `terminal-one-backend`, set a repo
-   **variable** `RAILWAY_SERVICE_NAME` to the actual name.
-4. *(Recommended)* Enable **branch protection** on `main` (and `develop`) requiring the
-   `backend` + `desktop` checks to pass — this makes the test gate block merges, complementing
-   the deploy gate. Optionally add a required-reviewer protection rule on the `production`
-   GitHub Environment for a manual approval before prod deploys.
-
-> Because the repo is public, GitHub Actions minutes are free and the build runs on Railway, so
-> this adds no deploy cost beyond the production/staging resources themselves.
+> Note: Railway's native deploy and the Actions test gate run **independently** — Railway does not
+> wait for Actions unless you enable its **"Wait for CI"** setting (service Settings). For a
+> single-user app, branch protection is usually enough. If you later want Railway to block on the
+> checks, flip "Wait for CI" on — no workflow changes needed.
 
 ## Notes
 
