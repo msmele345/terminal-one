@@ -20,16 +20,24 @@ terminal-one/
 └── .github/     CI (test gate)
 ```
 
-## Status — Phase 1: Walking skeleton - DONE
+## Status — Phase 2: Portfolio positions (manual) - DONE
 
-The thinnest end-to-end slice: Electron neon shell → single-account login → JWT (stored in
-the OS keychain) → authenticated call to Spring Boot → Postgres-backed identity. No domain
-logic yet.
+Phase 1 (walking skeleton) proved the stack end-to-end: Electron neon shell → single-account
+login → JWT (stored in the OS keychain) → authenticated Spring Boot call → Postgres identity.
+
+Phase 2 adds the **Portfolio Console**: enter, edit, delete, and CSV-import stock and option
+positions. All position I/O flows through the `PositionSource` seam (`ManualPositionSource`
+in V1); pricing/P&L arrive in Phase 3.
 
 - `GET /api/health` — public liveness
 - `POST /api/auth/login` — single account → JWT
 - `GET /api/whoami` — JWT-protected `{username, serverTime}` payload
-- Every other route requires a valid bearer token (401 otherwise)
+- `GET /api/portfolio/positions` — list stock + option positions
+- `POST /api/portfolio/positions` — add a position (`kind`: `STOCK` | `OPTION`)
+- `PUT /api/portfolio/positions/{id}` — edit a position
+- `DELETE /api/portfolio/positions/{id}?kind=STOCK|OPTION` — remove a position
+- `POST /api/portfolio/import` — CSV import (see [`docs/positions-csv-template.md`](docs/positions-csv-template.md))
+- Every route except health/login requires a valid bearer token (401 otherwise)
 
 ## Prerequisites
 
@@ -88,8 +96,8 @@ npm run dev                 # launches the Electron neon shell
 Log in with the seeded credentials. The JWT is stored in your OS keychain (macOS Keychain
 via `keytar`); the renderer never touches the token or the network directly.
 
-Other desktop scripts: `npm run lint`, `npm run typecheck`, `npm run build`,
-`npm run package` (unsigned `.app`, see D13).
+Other desktop scripts: `npm test` (renderer UI tests, Vitest), `npm run lint`,
+`npm run typecheck`, `npm run build`, `npm run package` (unsigned `.app`, see D13).
 
 ## Deploy
 
