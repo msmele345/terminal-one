@@ -59,12 +59,12 @@ A complete path to enter and see positions. The Portfolio Console lists position
 
 ### Acceptance criteria
 
-- [ ] Add, edit, and delete a **stock** position (symbol, qty, cost basis, opened date) end-to-end; persisted and reflected on the console.
-- [ ] Add, edit, and delete an **option** position (underlying, C/P, strike, expiry, qty, cost basis, long/short).
-- [ ] CSV import of positions against a documented template; malformed rows are reported, not silently dropped.
-- [ ] All reads/writes go through `PositionSource`; the manual adapter is the only implementation wired.
-- [ ] Backend tests cover CRUD + CSV parsing; a UI test covers add → list.
-- [ ] Empty-state on the console when no positions exist.
+- [x] Add, edit, and delete a **stock** position (symbol, qty, cost basis, opened date) end-to-end; persisted and reflected on the console. *(REST `positions` route + `PositionModal`; covered by `PortfolioControllerTest`.)*
+- [x] Add, edit, and delete an **option** position (underlying, C/P, strike, expiry, qty, cost basis, long/short). *(`OptionPosition` entity + option fields in the modal; `addEditAndDeleteAnOptionPosition` test.)*
+- [x] CSV import of positions against a documented template; malformed rows are reported, not silently dropped. *(`PositionCsvParser` returns per-line errors; template in `docs/positions-csv-template.md`; `Import CSV` button on the console.)*
+- [x] All reads/writes go through `PositionSource`; the manual adapter is the only implementation wired. *(`PositionSource` interface, sole impl `ManualPositionSource`; controller depends only on the interface.)*
+- [x] Backend tests cover CRUD + CSV parsing; a UI test covers add → list. *(`PositionCsvParserTest`, `ManualPositionSourceTest`, `PortfolioControllerTest`; renderer `PortfolioConsole.test.tsx`.)*
+- [x] Empty-state on the console when no positions exist. *(`empty-state` panel; `shows the empty-state` UI test.)*
 
 ---
 

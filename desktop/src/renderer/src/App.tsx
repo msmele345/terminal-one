@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WhoamiPayload } from '../../preload'
+import { PortfolioConsole } from './portfolio/PortfolioConsole'
 
 type View = 'loading' | 'login' | 'authed'
 
 export default function App(): JSX.Element {
   const [view, setView] = useState<View>('loading')
-  const [payload, setPayload] = useState<WhoamiPayload | null>(null)
+  const [, setPayload] = useState<WhoamiPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // On boot, if a token sits in the keychain, try to use it.
@@ -31,7 +32,7 @@ export default function App(): JSX.Element {
   return (
     <div className="app">
       <Header authed={view === 'authed'} onLogout={refresh} />
-      <main className="stage">
+      <main className={view === 'authed' ? 'stage stage-wide' : 'stage'}>
         {view === 'loading' && <p className="muted">Booting terminal…</p>}
         {view === 'login' && (
           <LoginCard
@@ -43,7 +44,7 @@ export default function App(): JSX.Element {
             }}
           />
         )}
-        {view === 'authed' && payload && <SessionCard payload={payload} />}
+        {view === 'authed' && <PortfolioConsole />}
       </main>
       <footer className="disclaimer">
         Personal tool — not financial advice. Advisory &amp; tracking only.
@@ -125,30 +126,5 @@ function LoginCard({
         {busy ? 'Authenticating…' : 'Pull the lever'}
       </button>
     </form>
-  )
-}
-
-function SessionCard({ payload }: { payload: WhoamiPayload }): JSX.Element {
-  return (
-    <div className="card">
-      <h1 className="card-title">SESSION&nbsp;LIVE</h1>
-      <dl className="readout">
-        <div>
-          <dt>Operator</dt>
-          <dd className="neon">{payload.username}</dd>
-        </div>
-        <div>
-          <dt>Authenticated</dt>
-          <dd className="neon">{payload.authenticated ? 'YES' : 'NO'}</dd>
-        </div>
-        <div>
-          <dt>Server time</dt>
-          <dd className="mono">{payload.serverTime}</dd>
-        </div>
-      </dl>
-      <p className="muted">
-        Authenticated round-trip confirmed: Electron → JWT → Spring Boot → Postgres.
-      </p>
-    </div>
   )
 }

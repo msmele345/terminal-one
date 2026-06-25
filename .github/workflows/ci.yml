@@ -49,5 +49,7 @@ jobs:
         run: npm run lint
       - name: Typecheck
         run: npm run typecheck
+      - name: Test (renderer UI tests)
+        run: npm test
       - name: Build (electron-vite bundle)
         run: npm run build
