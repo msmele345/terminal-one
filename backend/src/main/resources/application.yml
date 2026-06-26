@@ -48,3 +48,6 @@ app:
 logging:
   level:
     org.springframework.security: INFO
+
+marketdata:
+  token: ${MARKETDATA_TOKEN:dHB5bW0xTzUyNDRDX2lVejZoeEVIbTd0eURQRlE1cjlVRUIzRUxsRXdyVT0}
