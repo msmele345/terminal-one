@@ -6,6 +6,7 @@
 
 # ---- Java / Maven (backend) ----
 backend/target/
+backend/src/main/resources/application-secret.yml
 *.class
 *.jar
 !**/.mvn/wrapper/maven-wrapper.jar
