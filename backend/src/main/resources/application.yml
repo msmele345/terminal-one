@@ -44,6 +44,14 @@ app:
     # The single V1 account. Seeded on startup if absent. Override in prod.
     username: ${APP_USER_USERNAME:trader}
     password: ${APP_USER_PASSWORD:changeme}
+  market-data:
+    # MarketData.app (D3). Token is empty in dev (boots fine without it); set
+    # MARKETDATA_TOKEN in Railway for live data. 15-min cache TTL respects credits.
+    base-url: ${MARKETDATA_BASE_URL:https://api.marketdata.app/v1/}
+    token: ${MARKETDATA_TOKEN:}
+    cache-ttl: ${MARKETDATA_CACHE_TTL:PT15M}
+    chain-dte: ${MARKETDATA_CHAIN_DTE:45}
+    chain-strike-limit: ${MARKETDATA_CHAIN_STRIKE_LIMIT:30}
 
 logging:
   level:
