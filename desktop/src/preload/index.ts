@@ -53,6 +53,42 @@ export interface ImportResult {
   errors: { line: number; message: string }[]
 }
 
+// ---- Portfolio summary (Phase 3): delayed market value + unrealized P&L ----
+
+// Computed money fields are null when a symbol can't be priced (priced=false),
+// never a misleading 0.
+export interface StockSummary extends StockPosition {
+  markPrice: number | null
+  marketValue: number | null
+  unrealizedPnl: number | null
+  unrealizedPnlPct: number | null
+  priced: boolean
+}
+
+export interface OptionSummary extends OptionPosition {
+  markPrice: number | null
+  marketValue: number | null
+  unrealizedPnl: number | null
+  unrealizedPnlPct: number | null
+  priced: boolean
+}
+
+export interface PortfolioTotals {
+  costValue: number
+  marketValue: number
+  unrealizedPnl: number
+  unrealizedPnlPct: number | null
+}
+
+export interface PortfolioSummary {
+  stocks: StockSummary[]
+  options: OptionSummary[]
+  totals: PortfolioTotals
+  delayed: boolean
+  asOf: string | null
+  unpriced: number
+}
+
 // Request shape sent to the backend; option-only fields omitted for stock.
 export interface PositionRequest {
   kind: 'STOCK' | 'OPTION'
@@ -76,6 +112,7 @@ const api = {
   session: (): Promise<{ loggedIn: boolean }> => ipcRenderer.invoke('auth:session'),
   positions: {
     list: (): Promise<ApiResult<PositionsPayload>> => ipcRenderer.invoke('positions:list'),
+    summary: (): Promise<ApiResult<PortfolioSummary>> => ipcRenderer.invoke('positions:summary'),
     create: (request: PositionRequest): Promise<ApiResult<Position>> =>
       ipcRenderer.invoke('positions:create', request),
     update: (id: number, request: PositionRequest): Promise<ApiResult<Position>> =>

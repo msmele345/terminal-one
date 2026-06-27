@@ -1,5 +1,6 @@
 package com.terminalone.portfolio;
 
+import com.terminalone.portfolio.dto.PortfolioSummaryResponses.PortfolioSummary;
 import com.terminalone.portfolio.dto.PositionRequest;
 import com.terminalone.portfolio.dto.PositionResponses.ImportResponse;
 import com.terminalone.portfolio.dto.PositionResponses.OptionPositionResponse;
@@ -29,9 +30,11 @@ import java.util.List;
 public class PortfolioController {
 
     private final PositionSource positions;
+    private final PortfolioSummaryService summaryService;
 
-    public PortfolioController(PositionSource positions) {
+    public PortfolioController(PositionSource positions, PortfolioSummaryService summaryService) {
         this.positions = positions;
+        this.summaryService = summaryService;
     }
 
     @GetMapping("/positions")
@@ -41,6 +44,12 @@ public class PortfolioController {
         List<OptionPositionResponse> options = positions.listOptions().stream()
                 .map(OptionPositionResponse::from).toList();
         return new PositionsResponse(stocks, options);
+    }
+
+    /** Positions with delayed market value + unrealized P&amp;L ($/%) and portfolio totals (FR-5). */
+    @GetMapping("/summary")
+    public PortfolioSummary summary() {
+        return summaryService.summarize();
     }
 
     @PostMapping("/positions")

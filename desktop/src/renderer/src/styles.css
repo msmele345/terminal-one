@@ -10,7 +10,9 @@
   --text: #d7dbe8;
   --muted: #6b7088;
   --danger: #ff4d6d;
+  --gain: #2bff88;
   --glow-cyan: 0 0 8px rgba(0, 245, 212, 0.6), 0 0 18px rgba(0, 245, 212, 0.25);
+  --glow-gain: 0 0 8px rgba(43, 255, 136, 0.4);
 }
 
 * {
@@ -435,6 +437,84 @@ body {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 8px;
+}
+
+/* ---- P&L (Phase 3) ---- */
+.gain {
+  color: var(--gain);
+  text-shadow: var(--glow-gain);
+}
+
+.loss {
+  color: var(--danger);
+  text-shadow: 0 0 8px rgba(255, 77, 109, 0.35);
+}
+
+/* An unpriced row reads as inert: no market data, so no neon. */
+.unpriced td {
+  color: var(--muted);
+}
+
+.unpriced .neon {
+  color: var(--muted);
+  text-shadow: none;
+}
+
+/* ---- Totals bar ---- */
+.totals-bar {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stat-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.totals-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tag {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--edge);
+}
+
+.tag.delayed {
+  color: var(--neon-amber);
+  border-color: rgba(255, 181, 71, 0.4);
+}
+
+.tag.warn {
+  color: var(--danger);
+  border-color: rgba(255, 77, 109, 0.4);
 }
 
 /* ---- Disclaimer ---- */
