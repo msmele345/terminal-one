@@ -94,4 +94,14 @@ class MarketDataAppProviderTest {
         assertThat(chain.contracts()).isEmpty();
         assertThat(chain.delayed()).isFalse();
     }
+
+    @Test
+    void treatsAnEmptyBodyAsAnEmptyChainWithoutCrashing() {
+        // 204/503 from the transport carry an empty body — must not blow up the parse.
+        MarketDataProvider provider = providerReturning(503, "");
+
+        OptionChain chain = provider.getChain("ZZZZ");
+
+        assertThat(chain.contracts()).isEmpty();
+    }
 }

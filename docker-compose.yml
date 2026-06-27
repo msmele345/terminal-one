@@ -1,0 +1,27 @@
+# Local Postgres for backend dev + verifying Flyway migrations.
+# Credentials/port match the datasource defaults in
+# backend/src/main/resources/application.yml (terminalone/terminalone @ 5432).
+#
+#   docker compose up -d        # start (waits healthy)
+#   docker compose down         # stop, keep data
+#   docker compose down -v      # stop + wipe data → next boot replays V1..V3 clean
+services:
+  db:
+    image: postgres:16
+    container_name: t1-pg
+    environment:
+      POSTGRES_USER: terminalone
+      POSTGRES_PASSWORD: terminalone
+      POSTGRES_DB: terminalone
+    ports:
+      - "5432:5432"
+    volumes:
+      - t1-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U terminalone -d terminalone"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  t1-pg-data:

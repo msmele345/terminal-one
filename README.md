@@ -53,12 +53,22 @@ in V1); pricing/P&L arrive in Phase 3.
 ### 1. Postgres (Docker)
 
 ```bash
+docker compose up -d            # uses docker-compose.yml (waits until healthy)
+```
+
+<details><summary>or a one-off <code>docker run</code></summary>
+
+```bash
 docker run -d --name t1-pg \
   -e POSTGRES_USER=terminalone \
   -e POSTGRES_PASSWORD=terminalone \
   -e POSTGRES_DB=terminalone \
   -p 5432:5432 postgres:16
 ```
+</details>
+
+To re-verify the Flyway migrations from scratch, wipe the volume first:
+`docker compose down -v && docker compose up -d`.
 
 ### 2. Backend (Spring Boot)
 

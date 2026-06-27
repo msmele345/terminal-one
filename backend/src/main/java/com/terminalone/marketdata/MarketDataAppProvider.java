@@ -20,18 +20,31 @@ import java.util.List;
 public class MarketDataAppProvider implements MarketDataProvider {
 
     private static final int HTTP_DELAYED = 203;
+    private static final int DEFAULT_DTE = 45;
+    private static final int DEFAULT_STRIKE_LIMIT = 30;
 
     private final MarketDataClient client;
     private final ObjectMapper mapper;
+    private final int chainDte;
+    private final int chainStrikeLimit;
 
     public MarketDataAppProvider(MarketDataClient client, ObjectMapper mapper) {
+        this(client, mapper, DEFAULT_DTE, DEFAULT_STRIKE_LIMIT);
+    }
+
+    public MarketDataAppProvider(MarketDataClient client, ObjectMapper mapper,
+                                 int chainDte, int chainStrikeLimit) {
         this.client = client;
         this.mapper = mapper;
+        this.chainDte = chainDte;
+        this.chainStrikeLimit = chainStrikeLimit;
     }
 
     @Override
     public OptionChain getChain(String symbol) {
-        MarketDataClient.Response res = client.get("options/chain/" + symbol + "/");
+        // Bound the request to one near-money expiry window so it stays cheap.
+        String path = "options/chain/" + symbol + "/?dte=" + chainDte + "&strikeLimit=" + chainStrikeLimit;
+        MarketDataClient.Response res = client.get(path);
         boolean delayed = res.status() == HTTP_DELAYED;
         JsonNode root = readTree(res.body());
 
