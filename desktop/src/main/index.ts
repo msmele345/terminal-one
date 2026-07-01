@@ -113,6 +113,10 @@ async function listPositions() {
   return authedFetch('/api/portfolio/positions')
 }
 
+async function portfolioSummary() {
+  return authedFetch('/api/portfolio/summary')
+}
+
 async function createPosition(request: unknown) {
   return authedFetch('/api/portfolio/positions', {
     method: 'POST',
@@ -143,16 +147,22 @@ async function importPositions(csv: string) {
   })
 }
 
+async function marketDataHistory(symbol: string) {
+  return authedFetch(`/api/marketdata/history/${encodeURIComponent(symbol)}`)
+}
+
 function registerIpc(): void {
   ipcMain.handle('auth:login', (_e, username: string, password: string) => login(username, password))
   ipcMain.handle('auth:whoami', () => whoami())
   ipcMain.handle('auth:logout', () => logout())
   ipcMain.handle('auth:session', () => hasSession())
   ipcMain.handle('positions:list', () => listPositions())
+  ipcMain.handle('positions:summary', () => portfolioSummary())
   ipcMain.handle('positions:create', (_e, request: unknown) => createPosition(request))
   ipcMain.handle('positions:update', (_e, id: number, request: unknown) => updatePosition(id, request))
   ipcMain.handle('positions:delete', (_e, id: number, kind: string) => deletePosition(id, kind))
   ipcMain.handle('positions:import', (_e, csv: string) => importPositions(csv))
+  ipcMain.handle('marketdata:history', (_e, symbol: string) => marketDataHistory(symbol))
 }
 
 app.whenReady().then(() => {
