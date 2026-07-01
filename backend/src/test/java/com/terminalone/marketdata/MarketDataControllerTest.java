@@ -84,4 +84,39 @@ class MarketDataControllerTest {
 
         verify(provider).getQuote("AAPL");
     }
+
+    @Test
+    void historyRequiresAuth() throws Exception {
+        mockMvc.perform(get("/api/marketdata/history/AAPL").with(anonymous()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void returnsDailyHistory() throws Exception {
+        PriceBar bar = new PriceBar(LocalDate.of(2026, 1, 13), 190.0, 192.0, 189.0, 191.5, 50_000_000L);
+        when(provider.getDailyBars("AAPL")).thenReturn(
+                new PriceHistory("AAPL", Instant.parse("2026-06-26T20:00:00Z"), true, List.of(bar)));
+
+        mockMvc.perform(get("/api/marketdata/history/AAPL"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.symbol").value("AAPL"))
+                .andExpect(jsonPath("$.delayed").value(true))
+                .andExpect(jsonPath("$.bars[0].date").value("2026-01-13"))
+                .andExpect(jsonPath("$.bars[0].open").value(190.0))
+                .andExpect(jsonPath("$.bars[0].high").value(192.0))
+                .andExpect(jsonPath("$.bars[0].low").value(189.0))
+                .andExpect(jsonPath("$.bars[0].close").value(191.5))
+                .andExpect(jsonPath("$.bars[0].volume").value(50_000_000L));
+    }
+
+    @Test
+    void normalizesHistorySymbolToUppercase() throws Exception {
+        when(provider.getDailyBars("AAPL")).thenReturn(
+                new PriceHistory("AAPL", Instant.parse("2026-06-26T20:00:00Z"), false, List.of()));
+
+        mockMvc.perform(get("/api/marketdata/history/aapl"))
+                .andExpect(status().isOk());
+
+        verify(provider).getDailyBars("AAPL");
+    }
 }

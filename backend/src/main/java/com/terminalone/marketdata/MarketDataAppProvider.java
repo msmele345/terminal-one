@@ -22,6 +22,8 @@ public class MarketDataAppProvider implements MarketDataProvider {
     private static final int HTTP_DELAYED = 203;
     private static final int DEFAULT_DTE = 45;
     private static final int DEFAULT_STRIKE_LIMIT = 30;
+    /** Daily bars to request — a fixed display window keeps the candle call cheap. */
+    private static final int HISTORY_COUNTBACK = 120;
 
     private final MarketDataClient client;
     private final ObjectMapper mapper;
@@ -71,6 +73,37 @@ public class MarketDataAppProvider implements MarketDataProvider {
         double underlyingPrice = root.path("underlyingPrice").path(0).asDouble();
         Instant asOf = Instant.ofEpochSecond(root.path("updated").path(0).asLong());
         return new OptionChain(symbol, underlyingPrice, asOf, delayed, contracts);
+    }
+
+    @Override
+    public PriceHistory getDailyBars(String symbol) {
+        // Daily resolution, last N bars (countback) so the request stays cheap.
+        String path = "stocks/candles/D/" + symbol + "/?countback=" + HISTORY_COUNTBACK;
+        MarketDataClient.Response res = client.get(path);
+        boolean delayed = res.status() == HTTP_DELAYED;
+        JsonNode root = readTree(res.body());
+
+        JsonNode t = root.path("t");
+        JsonNode o = root.path("o");
+        JsonNode h = root.path("h");
+        JsonNode l = root.path("l");
+        JsonNode c = root.path("c");
+        JsonNode v = root.path("v");
+
+        List<PriceBar> bars = new ArrayList<>(t.size());
+        for (int i = 0; i < t.size(); i++) {
+            bars.add(new PriceBar(
+                    epochToDate(t.get(i).asLong()),
+                    o.get(i).asDouble(),
+                    h.get(i).asDouble(),
+                    l.get(i).asDouble(),
+                    c.get(i).asDouble(),
+                    v.get(i).asLong()));
+        }
+
+        // The vendor returns bars oldest-first; asOf is the newest bar's timestamp.
+        Instant asOf = t.isEmpty() ? Instant.EPOCH : Instant.ofEpochSecond(t.get(t.size() - 1).asLong());
+        return new PriceHistory(symbol, asOf, delayed, bars);
     }
 
     @Override

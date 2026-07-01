@@ -6,6 +6,9 @@ Real, recorded vendor responses used as deterministic, token-free test inputs:
   Drives the `MarketDataProvider` adapter-parser tests (Phase 3 AC #1) and the
   `OptionAnalytics` Black-Scholes cross-check vs vendor IV/greeks (Phase 3 AC #2).
 - `quote-<SYMBOL>.json` — raw columnar stock-quote response (`/v1/stocks/quotes`).
+- `candles-<SYMBOL>.json` — raw columnar daily OHLCV response (`/v1/stocks/candles/D`,
+  parallel arrays `t/o/h/l/c/v`). Drives the `MarketDataProvider` daily-bars
+  parser test (Phase 3 AC #4) — feeds the per-symbol console chart.
 
 ## Regenerate
 

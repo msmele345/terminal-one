@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   OptionSummary,
   PortfolioSummary,
@@ -7,6 +7,7 @@ import type {
   StockSummary
 } from '../../../preload'
 import { PositionModal } from './PositionModal'
+import { PriceChart } from './PriceChart'
 
 type Editing = { mode: 'create' } | { mode: 'edit'; position: Position } | null
 
@@ -15,7 +16,23 @@ export function PortfolioConsole(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Editing>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+
+  // Distinct chartable symbols: stock tickers + option underlyings, in order.
+  const symbols = useMemo(() => {
+    if (data == null) return []
+    return [...new Set([...data.stocks.map((s) => s.symbol), ...data.options.map((o) => o.underlying)])]
+  }, [data])
+
+  // Default the chart to the first symbol; keep the selection valid as positions change.
+  useEffect(() => {
+    if (symbols.length === 0) {
+      if (selectedSymbol !== null) setSelectedSymbol(null)
+    } else if (selectedSymbol == null || !symbols.includes(selectedSymbol)) {
+      setSelectedSymbol(symbols[0])
+    }
+  }, [symbols, selectedSymbol])
 
   const load = useCallback(async () => {
     const res = await window.api.positions.summary()
@@ -114,6 +131,13 @@ export function PortfolioConsole(): JSX.Element {
               />
             )}
           </div>
+          {symbols.length > 0 && selectedSymbol && (
+            <ChartPanel
+              symbols={symbols}
+              selected={selectedSymbol}
+              onSelect={setSelectedSymbol}
+            />
+          )}
         </>
       )}
 
@@ -134,6 +158,38 @@ export function PortfolioConsole(): JSX.Element {
 
 function describeErrors(errors: { line: number; message: string }[]): string {
   return errors.map((e) => `line ${e.line} (${e.message})`).join('; ')
+}
+
+function ChartPanel({
+  symbols,
+  selected,
+  onSelect
+}: {
+  symbols: string[]
+  selected: string
+  onSelect: (symbol: string) => void
+}): JSX.Element {
+  return (
+    <div className="panel chart-panel">
+      <div className="panel-head">
+        <h2 className="panel-title">PRICE&nbsp;HISTORY</h2>
+        <div className="symbol-chips" role="tablist" aria-label="Chart symbol">
+          {symbols.map((s) => (
+            <button
+              key={s}
+              role="tab"
+              aria-selected={s === selected}
+              className={`chip ${s === selected ? 'chip-active' : ''}`}
+              onClick={() => onSelect(s)}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+      <PriceChart symbol={selected} />
+    </div>
+  )
 }
 
 // ---- formatting ----

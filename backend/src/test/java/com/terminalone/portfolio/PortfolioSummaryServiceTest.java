@@ -4,6 +4,7 @@ import com.terminalone.marketdata.CallPut;
 import com.terminalone.marketdata.MarketDataProvider;
 import com.terminalone.marketdata.OptionChain;
 import com.terminalone.marketdata.OptionContract;
+import com.terminalone.marketdata.PriceHistory;
 import com.terminalone.marketdata.StockQuote;
 import com.terminalone.portfolio.dto.PortfolioSummaryResponses.OptionSummary;
 import com.terminalone.portfolio.dto.PortfolioSummaryResponses.PortfolioSummary;
@@ -118,6 +119,11 @@ class PortfolioSummaryServiceTest {
             public StockQuote getQuote(String symbol) {
                 throw new RuntimeException("vendor down");
             }
+
+            @Override
+            public PriceHistory getDailyBars(String symbol) {
+                throw new RuntimeException("vendor down");
+            }
         };
 
         PortfolioSummary summary = new PortfolioSummaryService(positions, exploding).summarize();
@@ -218,6 +224,11 @@ class PortfolioSummaryServiceTest {
         @Override
         public StockQuote getQuote(String symbol) {
             return quotes.get(symbol);
+        }
+
+        @Override
+        public PriceHistory getDailyBars(String symbol) {
+            return new PriceHistory(symbol, Instant.EPOCH, false, List.of());
         }
     }
 }

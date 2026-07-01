@@ -20,6 +20,7 @@
  * Output (raw, pretty-printed JSON, committed as test fixtures):
  *   backend/src/test/resources/fixtures/marketdata/chain-<SYMBOL>.json
  *   backend/src/test/resources/fixtures/marketdata/quote-<SYMBOL>.json
+ *   backend/src/test/resources/fixtures/marketdata/candles-<SYMBOL>.json (daily OHLCV)
  *
  * Get a free token: https://www.marketdata.app  (Free Forever plan, no card).
  */
@@ -54,6 +55,10 @@ const chainUrl =
 const quoteUrl =
   `https://api.marketdata.app/v1/stocks/quotes/${symbol}/` +
   `?token=${encodeURIComponent(token)}`;
+// Last ~120 daily bars (the console chart window, Phase 3 AC #4) — columnar t/o/h/l/c/v.
+const candlesUrl =
+  `https://api.marketdata.app/v1/stocks/candles/D/${symbol}/` +
+  `?countback=120&token=${encodeURIComponent(token)}`;
 
 async function get(label, url) {
   let res;
@@ -83,6 +88,7 @@ async function get(label, url) {
 
   const chain = await get("chain", chainUrl);
   const quote = await get("quote", quoteUrl);
+  const candles = await get("candles", candlesUrl);
 
   const n = chain.body.optionSymbol?.length ?? 0;
   const ivOk = Array.isArray(chain.body.iv) && chain.body.iv[0] != null;
@@ -101,13 +107,19 @@ async function get(label, url) {
     );
   }
 
+  const candleCount = candles.body.t?.length ?? 0;
+  console.log(`candles: ${candleCount} daily bars`);
+
   const chainPath = join(outDir, `chain-${symbol}.json`);
   const quotePath = join(outDir, `quote-${symbol}.json`);
+  const candlesPath = join(outDir, `candles-${symbol}.json`);
   await writeFile(chainPath, JSON.stringify(chain.body, null, 2) + "\n");
   await writeFile(quotePath, JSON.stringify(quote.body, null, 2) + "\n");
+  await writeFile(candlesPath, JSON.stringify(candles.body, null, 2) + "\n");
 
   console.log(`\n✓ wrote ${chainPath}`);
   console.log(`✓ wrote ${quotePath}`);
+  console.log(`✓ wrote ${candlesPath}`);
   console.log(
     "\nNext: re-run the backend tests — the assumeTrue-gated cross-check\n" +
       "(BlackScholesOptionAnalyticsTest) will activate now that the fixture exists.",

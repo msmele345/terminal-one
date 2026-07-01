@@ -12,4 +12,7 @@ public interface MarketDataProvider {
 
     /** Delayed stock quote for {@code symbol}. */
     StockQuote getQuote(String symbol);
+
+    /** Daily price history (OHLCV bars, oldest first) for {@code symbol} (FR-8). */
+    PriceHistory getDailyBars(String symbol);
 }

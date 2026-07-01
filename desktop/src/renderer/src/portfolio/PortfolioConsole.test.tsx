@@ -2,11 +2,31 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PortfolioConsole } from './PortfolioConsole'
-import type { PortfolioSummary, PositionRequest, StockSummary } from '../../../preload'
+import type { PortfolioSummary, PositionRequest, PriceHistory, StockSummary } from '../../../preload'
+
+// The console embeds the canvas-backed PriceChart; jsdom can't run a <canvas>, so
+// stub lightweight-charts to a no-op renderer. The chart's own plumbing is covered
+// in PriceChart.test.tsx — here we only assert the console wires symbols to it.
+vi.mock('lightweight-charts', () => {
+  const series = { setData: vi.fn(), applyOptions: vi.fn() }
+  const chart = {
+    addSeries: vi.fn(() => series),
+    timeScale: vi.fn(() => ({ fitContent: vi.fn() })),
+    applyOptions: vi.fn(),
+    remove: vi.fn()
+  }
+  return { createChart: vi.fn(() => chart), AreaSeries: 'AreaSeries', ColorType: { Solid: 'solid' } }
+})
 
 function emptyTotals(): PortfolioSummary['totals'] {
   return { costValue: 0, marketValue: 0, unrealizedPnl: 0, unrealizedPnlPct: null }
 }
+
+function emptyHistory(symbol: string): PriceHistory {
+  return { symbol, asOf: null, delayed: false, bars: [] }
+}
+
+let historySpy: ReturnType<typeof vi.fn>
 
 // A stateful in-memory fake of the main-process position API. The console talks
 // only to window.api, so this fully exercises the add -> summary path without IPC.
@@ -48,8 +68,9 @@ function installFakeApi(): void {
     remove: vi.fn(),
     import: vi.fn()
   }
+  historySpy = vi.fn(async (symbol: string) => ({ ok: true as const, data: emptyHistory(symbol) }))
   // @ts-expect-error — partial stub of the preload surface for the test
-  window.api = { positions }
+  window.api = { positions, marketData: { history: historySpy } }
 }
 
 describe('PortfolioConsole', () => {
@@ -118,6 +139,66 @@ describe('PortfolioConsole', () => {
     const totals = screen.getByTestId('totals-bar')
     expect(within(totals).getByText('+$1,500.00')).toBeInTheDocument()
     expect(within(totals).getByText('$16,500.00')).toBeInTheDocument()
+  })
+
+  it('renders a price-history panel and switches the chart symbol via the selector', async () => {
+    const user = userEvent.setup()
+    const data: PortfolioSummary = {
+      stocks: [
+        {
+          id: 1,
+          kind: 'STOCK',
+          symbol: 'AAPL',
+          quantity: 100,
+          costBasis: 150,
+          openedDate: '2026-01-15',
+          markPrice: 165,
+          marketValue: 16500,
+          unrealizedPnl: 1500,
+          unrealizedPnlPct: 10,
+          priced: true
+        }
+      ],
+      options: [
+        {
+          id: 2,
+          kind: 'OPTION',
+          underlying: 'TSLA',
+          optionType: 'CALL',
+          strike: 200,
+          expiry: '2026-09-18',
+          quantity: 1,
+          costBasis: 6.5,
+          side: 'LONG',
+          openedDate: null,
+          markPrice: 7,
+          marketValue: 700,
+          unrealizedPnl: 50,
+          unrealizedPnlPct: 7.69,
+          priced: true
+        }
+      ],
+      totals: { costValue: 15650, marketValue: 17200, unrealizedPnl: 1550, unrealizedPnlPct: 9.9 },
+      delayed: false,
+      asOf: '2026-06-26T20:00:00Z',
+      unpriced: 0
+    }
+    window.api.positions.summary = vi.fn(async () => ({ ok: true as const, data }))
+
+    render(<PortfolioConsole />)
+
+    // Panel renders; distinct symbols (stock + option underlying) become selectors.
+    expect(await screen.findByTestId('price-chart')).toBeInTheDocument()
+    const aapl = screen.getByRole('tab', { name: 'AAPL' })
+    const tsla = screen.getByRole('tab', { name: 'TSLA' })
+    // Defaults to the first symbol and fetches its history.
+    await waitFor(() => expect(aapl).toHaveAttribute('aria-selected', 'true'))
+    expect(historySpy).toHaveBeenCalledWith('AAPL')
+
+    await user.click(tsla)
+
+    await waitFor(() => expect(tsla).toHaveAttribute('aria-selected', 'true'))
+    expect(historySpy).toHaveBeenCalledWith('TSLA')
   })
 
   it('marks unpriceable positions instead of showing a misleading zero', async () => {

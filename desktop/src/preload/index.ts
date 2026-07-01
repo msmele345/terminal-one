@@ -89,6 +89,24 @@ export interface PortfolioSummary {
   unpriced: number
 }
 
+// ---- Price history (Phase 3): daily OHLCV bars for the per-symbol chart ----
+
+export interface PriceBar {
+  date: string // YYYY-MM-DD
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export interface PriceHistory {
+  symbol: string
+  asOf: string | null
+  delayed: boolean
+  bars: PriceBar[]
+}
+
 // Request shape sent to the backend; option-only fields omitted for stock.
 export interface PositionRequest {
   kind: 'STOCK' | 'OPTION'
@@ -121,6 +139,10 @@ const api = {
       ipcRenderer.invoke('positions:delete', id, kind),
     import: (csv: string): Promise<ApiResult<ImportResult>> =>
       ipcRenderer.invoke('positions:import', csv)
+  },
+  marketData: {
+    history: (symbol: string): Promise<ApiResult<PriceHistory>> =>
+      ipcRenderer.invoke('marketdata:history', symbol)
   }
 }
 

@@ -81,7 +81,7 @@ Positions gain delayed market value and P&L, and the console gets charts. A `Mar
 - [ ] `MarketDataProvider` returns delayed quotes + option chains (strikes/expiries/bid-ask/OI) for portfolio symbols; results cached with TTL and served from cache on repeat calls.
 - [ ] `OptionAnalytics` computes IV (from mid) and greeks (δ/γ/θ/ν) via Black-Scholes for chain contracts, independent of any vendor-supplied greeks (D22).
 - [ ] Console shows per-position delayed market value and unrealized P&L ($ and %), plus portfolio totals.
-- [ ] Per-symbol price chart renders (dark-themed) on the console.
+- [x] Per-symbol price chart renders (dark-themed) on the console. *(TradingView Lightweight Charts v5 area series in `PriceChart`; a `PRICE HISTORY` panel on the console with symbol-selector chips. Daily bars come from MarketData.app's `stocks/candles` behind the same `MarketDataProvider`/TTL-cache seam — `getDailyBars` + `GET /api/marketdata/history/{symbol}` — resolving OQ-2 by reusing the OQ-1 vendor (no new dependency). Tests: `MarketDataAppProviderTest` (columnar candle parse + recorded-fixture gate), `MarketDataControllerTest`, `PriceChart.test.tsx`, `PortfolioConsole.test.tsx`.)*
 - [ ] A daily job stores ATM IV per portfolio underlying into `iv_history`; backfill/accumulation is observable.
 - [ ] Graceful handling + visible indicator when data is stale or a symbol can't be priced (no crash, no silent zeros).
 - [ ] Tests: provider adapter (against recorded fixtures), cache TTL behavior, P&L math.

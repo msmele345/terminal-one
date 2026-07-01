@@ -517,6 +517,74 @@ body {
   border-color: rgba(255, 77, 109, 0.4);
 }
 
+/* ---- Price-history chart panel ---- */
+.chart-panel {
+  margin-top: 22px;
+  padding-bottom: 16px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.panel-head .panel-title {
+  margin: 0;
+}
+
+.symbol-chips {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--edge);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.chip:hover {
+  color: var(--text);
+  border-color: var(--neon-cyan);
+}
+
+.chip-active {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.price-chart-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.price-chart-canvas {
+  width: 100%;
+  height: 260px;
+}
+
+.price-chart-msg {
+  height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
 /* ---- Disclaimer ---- */
 .disclaimer {
   text-align: center;

@@ -32,6 +32,11 @@ public class MarketDataController {
         return provider.getChain(normalize(symbol));
     }
 
+    @GetMapping("/history/{symbol}")
+    public PriceHistory history(@PathVariable String symbol) {
+        return provider.getDailyBars(normalize(symbol));
+    }
+
     private static String normalize(String symbol) {
         return symbol.toUpperCase(Locale.ROOT);
     }
