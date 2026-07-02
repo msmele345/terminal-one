@@ -52,6 +52,10 @@ app:
     cache-ttl: ${MARKETDATA_CACHE_TTL:PT15M}
     chain-dte: ${MARKETDATA_CHAIN_DTE:45}
     chain-strike-limit: ${MARKETDATA_CHAIN_STRIKE_LIMIT:30}
+  iv-history:
+    # Daily ATM IV accumulation job (Phase 3 AC5): post US close (16:15 ET),
+    # weekdays, in America/New_York. Spring cron: sec min hour dom mon dow.
+    cron: ${IV_HISTORY_CRON:0 15 16 * * MON-FRI}
 
 logging:
   level:

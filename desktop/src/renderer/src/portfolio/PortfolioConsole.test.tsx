@@ -201,6 +201,38 @@ describe('PortfolioConsole', () => {
     expect(historySpy).toHaveBeenCalledWith('TSLA')
   })
 
+  it('flags stale (delayed) data and an unpriced count in the totals bar', async () => {
+    const data: PortfolioSummary = {
+      stocks: [
+        {
+          id: 1,
+          kind: 'STOCK',
+          symbol: 'AAPL',
+          quantity: 100,
+          costBasis: 150,
+          openedDate: '2026-01-15',
+          markPrice: 165,
+          marketValue: 16500,
+          unrealizedPnl: 1500,
+          unrealizedPnlPct: 10,
+          priced: true
+        }
+      ],
+      options: [],
+      totals: { costValue: 15000, marketValue: 16500, unrealizedPnl: 1500, unrealizedPnlPct: 10 },
+      delayed: true,
+      asOf: '2026-06-26T20:00:00Z',
+      unpriced: 2
+    }
+    window.api.positions.summary = vi.fn(async () => ({ ok: true as const, data }))
+
+    render(<PortfolioConsole />)
+
+    const totals = await screen.findByTestId('totals-bar')
+    expect(within(totals).getByText('DELAYED')).toBeInTheDocument()
+    expect(within(totals).getByText(/2 unpriced/i)).toBeInTheDocument()
+  })
+
   it('marks unpriceable positions instead of showing a misleading zero', async () => {
     const data: PortfolioSummary = {
       stocks: [
