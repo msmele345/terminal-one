@@ -2,7 +2,7 @@
 
 > **Purpose:** how to change the recommendation engine's tuning (deltas, DTE windows, risk cap, IV-rank cutoffs, indicator weights — all of strategy-matrix §9) in V1, before the V1.5 in-app Settings screen exists.
 > **Resolves PRD FR-30.** Mechanism per PRD D21 / strategy-matrix §9.1.
-> **Status:** Draft — exact table/column names are confirmed in M2; the procedure and guarantees below are stable.
+> **Status:** Confirmed — the `engine_config` table below is implemented as written (migration `V5__engine_config.sql`, Phase 4 AC1/AC2).
 
 ---
 
