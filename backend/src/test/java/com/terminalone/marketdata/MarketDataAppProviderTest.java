@@ -167,6 +167,66 @@ class MarketDataAppProviderTest {
         assertThat(provider.getDailyBars("ZZZZ").bars()).isEmpty();
     }
 
+    private String readFixture(String name) throws Exception {
+        InputStream resource = getClass().getResourceAsStream("/fixtures/marketdata/" + name);
+        assumeTrue(resource != null,
+                "golden fixture not captured — run: node spikes/capture-marketdata-fixture.mjs AAPL");
+        try (InputStream in = resource) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
+    /**
+     * Parses a real recorded option-chain response (Phase 3 AC #1 / AC #7). Skips
+     * cleanly until the golden fixture is captured via
+     * {@code spikes/capture-marketdata-fixture.mjs}.
+     */
+    @Test
+    void parsesRecordedChainFixture() throws Exception {
+        String body = readFixture("chain-AAPL.json");
+        assumeTrue(body.contains("\"optionSymbol\""), "fixture has no chain payload");
+
+        // 203 = the delayed/cached response the cache layer serves in production.
+        OptionChain chain = providerReturning(203, body).getChain("AAPL");
+
+        assertThat(chain.underlying()).isEqualTo("AAPL");
+        assertThat(chain.underlyingPrice()).isPositive();
+        assertThat(chain.delayed()).isTrue();
+        assertThat(chain.contracts()).isNotEmpty();
+        // The capture deliberately records both sides across a band of strikes.
+        assertThat(chain.contracts()).extracting(OptionContract::callPut)
+                .contains(CallPut.CALL, CallPut.PUT);
+        for (OptionContract c : chain.contracts()) {
+            assertThat(c.optionSymbol()).startsWith("AAPL"); // OCC format
+            assertThat(c.strike()).isPositive();
+            assertThat(c.expiration()).isAfter(LocalDate.of(2020, 1, 1)); // epoch-seconds parsed, not ms
+            assertThat(c.ask()).isGreaterThanOrEqualTo(c.bid());
+            assertThat(c.bid()).isGreaterThanOrEqualTo(0.0);
+        }
+    }
+
+    /**
+     * Parses a real recorded stock-quote response (Phase 3 AC #1 / AC #7). Skips
+     * cleanly until the golden fixture is captured via
+     * {@code spikes/capture-marketdata-fixture.mjs}.
+     */
+    @Test
+    void parsesRecordedQuoteFixture() throws Exception {
+        String body = readFixture("quote-AAPL.json");
+        assumeTrue(body.contains("\"symbol\""), "fixture has no quote payload");
+
+        StockQuote quote = providerReturning(203, body).getQuote("AAPL");
+
+        assertThat(quote.symbol()).isEqualTo("AAPL");
+        assertThat(quote.last()).isPositive();
+        // Delayed snapshots can record a momentarily crossed market (bid > ask by
+        // a tick), so only sanity-check positivity — never assert ask >= bid here.
+        assertThat(quote.bid()).isPositive();
+        assertThat(quote.ask()).isPositive();
+        assertThat(quote.asOf()).isAfter(Instant.parse("2020-01-01T00:00:00Z"));
+        assertThat(quote.delayed()).isTrue();
+    }
+
     /**
      * Parses a real recorded daily-candle response (Phase 3 AC #4 / AC #7). Skips
      * cleanly until the golden fixture is captured via
@@ -174,14 +234,7 @@ class MarketDataAppProviderTest {
      */
     @Test
     void parsesRecordedDailyCandleFixture() throws Exception {
-        InputStream resource = getClass().getResourceAsStream("/fixtures/marketdata/candles-AAPL.json");
-        assumeTrue(resource != null,
-                "golden fixture not captured — run: node spikes/capture-marketdata-fixture.mjs AAPL");
-
-        String body;
-        try (InputStream in = resource) {
-            body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
+        String body = readFixture("candles-AAPL.json");
         assumeTrue(body.contains("\"t\""), "fixture has no candle payload");
 
         // 203 = the delayed/cached response the cache layer serves in production.
