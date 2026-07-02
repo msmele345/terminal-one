@@ -1,0 +1,208 @@
+package com.terminalone.engine;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+
+@Entity
+@Table(name = "recommendations")
+public class Recommendation {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(nullable = false, length = 16)
+    private String symbol;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 64)
+    private StrategyType strategy;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private Direction direction;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private VolatilityRegime regime;
+
+    @Column(nullable = false)
+    private int conviction;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private RecommendationStatus status;
+
+    @Column(name = "config_version", nullable = false)
+    private Integer configVersion;
+
+    @Column(nullable = false)
+    private LocalDate expiry;
+
+    @Column(name = "long_option_symbol", nullable = false, length = 64)
+    private String longOptionSymbol;
+
+    @Column(name = "long_strike", nullable = false, precision = 19, scale = 4)
+    private BigDecimal longStrike;
+
+    @Column(name = "short_option_symbol", nullable = false, length = 64)
+    private String shortOptionSymbol;
+
+    @Column(name = "short_strike", nullable = false, precision = 19, scale = 4)
+    private BigDecimal shortStrike;
+
+    @Column(name = "entry_debit", nullable = false, precision = 19, scale = 4)
+    private BigDecimal entryDebit;
+
+    @Column(name = "probability_of_profit", nullable = false, precision = 19, scale = 6)
+    private BigDecimal probabilityOfProfit;
+
+    @Column(name = "max_profit", nullable = false, precision = 19, scale = 4)
+    private BigDecimal maxProfit;
+
+    @Column(name = "max_loss", nullable = false, precision = 19, scale = 4)
+    private BigDecimal maxLoss;
+
+    @Column(name = "risk_reward", nullable = false, precision = 19, scale = 6)
+    private BigDecimal riskReward;
+
+    @Column(nullable = false, precision = 19, scale = 6)
+    private BigDecimal score;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, columnDefinition = "jsonb")
+    private String rationale;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    protected Recommendation() {
+        // JPA
+    }
+
+    Recommendation(String symbol,
+                   StrategyType strategy,
+                   Direction direction,
+                   VolatilityRegime regime,
+                   int conviction,
+                   RecommendationStatus status,
+                   int configVersion,
+                   LocalDate expiry,
+                   String longOptionSymbol,
+                   double longStrike,
+                   String shortOptionSymbol,
+                   double shortStrike,
+                   double entryDebit,
+                   double probabilityOfProfit,
+                   double maxProfit,
+                   double maxLoss,
+                   double riskReward,
+                   double score,
+                   String rationale,
+                   Instant createdAt) {
+        this.symbol = symbol;
+        this.strategy = strategy;
+        this.direction = direction;
+        this.regime = regime;
+        this.conviction = conviction;
+        this.status = status;
+        this.configVersion = configVersion;
+        this.expiry = expiry;
+        this.longOptionSymbol = longOptionSymbol;
+        this.longStrike = decimal(longStrike);
+        this.shortOptionSymbol = shortOptionSymbol;
+        this.shortStrike = decimal(shortStrike);
+        this.entryDebit = decimal(entryDebit);
+        this.probabilityOfProfit = decimal(probabilityOfProfit);
+        this.maxProfit = decimal(maxProfit);
+        this.maxLoss = decimal(maxLoss);
+        this.riskReward = decimal(riskReward);
+        this.score = decimal(score);
+        this.rationale = rationale;
+        this.createdAt = createdAt;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getSymbol() {
+        return symbol;
+    }
+
+    public StrategyType getStrategy() {
+        return strategy;
+    }
+
+    public Direction getDirection() {
+        return direction;
+    }
+
+    public VolatilityRegime getRegime() {
+        return regime;
+    }
+
+    public int getConviction() {
+        return conviction;
+    }
+
+    public RecommendationStatus getStatus() {
+        return status;
+    }
+
+    public Integer getConfigVersion() {
+        return configVersion;
+    }
+
+    public LocalDate getExpiry() {
+        return expiry;
+    }
+
+    public double getEntryDebit() {
+        return entryDebit.doubleValue();
+    }
+
+    public double getProbabilityOfProfit() {
+        return probabilityOfProfit.doubleValue();
+    }
+
+    public double getMaxProfit() {
+        return maxProfit.doubleValue();
+    }
+
+    public double getMaxLoss() {
+        return maxLoss.doubleValue();
+    }
+
+    public double getRiskReward() {
+        return riskReward.doubleValue();
+    }
+
+    public double getScore() {
+        return score.doubleValue();
+    }
+
+    public String getRationale() {
+        return rationale;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    private static BigDecimal decimal(double value) {
+        return BigDecimal.valueOf(value);
+    }
+}
