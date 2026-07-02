@@ -1,0 +1,57 @@
+{
+  "signal": {
+    "ema": { "fast": 20, "slow": 50 },
+    "macd": { "fast": 12, "slow": 26, "signal": 9 },
+    "rsi": { "period": 14, "overboughtZone": 70, "oversoldZone": 30, "cautionFactor": 0.5 },
+    "weights": { "trend": 0.40, "macd": 0.35, "rsi": 0.25 },
+    "directionThreshold": 0.20,
+    "convictionScale": 0.80
+  },
+  "regime": {
+    "metric": "IV_RANK",
+    "ivRankLow": 30,
+    "ivRankHigh": 60,
+    "minIvHistoryDays": 60
+  },
+  "conviction": {
+    "tradeFloor": 40,
+    "bands": { "standard": [40, 59], "confident": [60, 79], "high": [80, 100] },
+    "longSingleLegMinConviction": 80
+  },
+  "strikes": {
+    "creditShortDelta": { "standard": 0.20, "confident": 0.30, "high": 0.38 },
+    "debitLongDelta": { "standard": 0.50, "confident": 0.55, "high": 0.62 },
+    "debitShortDelta": { "standard": 0.25, "confident": 0.28, "high": 0.30 },
+    "longSingleLegDelta": 0.65,
+    "coveredCallDelta": 0.30,
+    "cspDelta": 0.30,
+    "creditSpreadWidth": 5.00
+  },
+  "expiry": {
+    "creditDteTarget": [30, 45],
+    "creditDteWindow": [25, 50],
+    "incomeDteTarget": [30, 45],
+    "incomeDteWindow": [25, 50],
+    "debitDteTarget": [45, 60],
+    "debitDteWindow": [35, 70]
+  },
+  "filters": {
+    "maxBidAskPctOfMid": 0.10,
+    "maxBidAskAbsolute": 0.10,
+    "minOpenInterest": 100,
+    "minCreditToWidthRatio": 0.333,
+    "minPopCredit": 0.65,
+    "minRewardRiskDebit": 1.0,
+    "avoidEarnings": true
+  },
+  "sizing": {
+    "perTradeRiskPct": 0.03
+  },
+  "ranking": {
+    "topN": 3,
+    "regimeFitMatch": 1.15,
+    "regimeFitNeutral": 1.00,
+    "regimeFitCounter": 0.85,
+    "requirePositiveEV": true
+  }
+}
