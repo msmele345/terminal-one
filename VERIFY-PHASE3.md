@@ -29,6 +29,33 @@ docker compose down                         # 3. stop Postgres (keep data)
 
 ---
 
+## Fastest path: run everything offline (stub profile)
+
+Phase 3 AC 6.5 adds a **`stub` profile** that swaps the real MarketData.app provider for
+`StubMarketDataProvider` — deterministic, in-house-priced quotes/chains/daily-bars for any
+symbol. This lets the full stack (backend + desktop) run with **no `MARKETDATA_TOKEN`**:
+
+```bash
+docker compose up -d                                          # Postgres still required
+cd backend && SPRING_PROFILES_ACTIVE=stub mvn spring-boot:run  # look for "StubMarketDataProvider ACTIVE"
+cd desktop && npm run dev                                     # log in → console comes alive
+```
+
+What lights up offline (verified end-to-end):
+
+- **Positions price** — stocks *and* held option legs (the stub augments the chain with your
+  exact held legs so their P&L populates). `priced: true`, `delayed: true`.
+- **Charts** — `GET /api/marketdata/history/{symbol}` returns 120 daily bars whose last close
+  equals the position's mark.
+- **ATM-IV job** — `POST /api/marketdata/iv-history/run` records one reading per underlying;
+  read them back at `GET /api/marketdata/iv-history/{symbol}`.
+
+Caveats: stub prices are **stable per symbol but synthetic** (not real market levels), so P&L
+is illustrative only. The profile is **dev-only** — the real provider (`@Profile("!stub")`) is
+the default and is what ships. Tests: `StubMarketDataProviderTest`, `StubProfileWiringTest`.
+
+---
+
 ## 1. Start Postgres
 
 `docker-compose.yml` at the repo root starts Postgres 16 with the same credentials the

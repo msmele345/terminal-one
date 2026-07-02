@@ -94,6 +94,24 @@ Run the test gate (no DB required — uses in-memory H2):
 cd backend && mvn test
 ```
 
+#### Run fully offline (stub market data)
+
+No MarketData.app token? Boot under the `stub` profile and the backend serves deterministic,
+in-house-priced quotes/chains/daily-bars for **any** symbol — the console prices positions,
+renders charts + totals, and the ATM-IV job records readings, using Postgres but **no vendor
+credentials**:
+
+```bash
+cd backend
+set -a && source .env && set +a                 # DB creds only; MARKETDATA_TOKEN not needed
+SPRING_PROFILES_ACTIVE=stub mvn spring-boot:run
+```
+
+Then start the desktop (below) and log in — the console comes alive against synthetic data.
+Stub prices are stable per symbol but **not real market levels** (P&L is illustrative). The
+real MarketData.app provider is the default whenever the profile is off. Full walkthrough:
+[`VERIFY-PHASE3.md`](VERIFY-PHASE3.md).
+
 ### 3. Desktop (Electron)
 
 ```bash
