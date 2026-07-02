@@ -1,5 +1,6 @@
 package com.terminalone.marketdata;
 
+import com.terminalone.marketdata.AtmIvRecorder.RecordResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -8,6 +9,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -17,25 +19,35 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * HTTP-layer coverage of the delayed market-data API (FR-6): JWT gating, JSON
- * shape of quotes/chains, and symbol normalization. The {@link MarketDataProvider}
- * is mocked, so no network/cache is exercised here.
+ * shape of quotes/chains, symbol normalization, and the ATM IV series endpoints
+ * (AC5). The {@link MarketDataProvider} + {@link AtmIvRecorder} are mocked, so no
+ * network/cache is exercised; the real {@link IvHistoryRepository} (H2) backs the
+ * series read, with rollback per test via {@link Transactional}.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @WithMockUser
+@Transactional
 class MarketDataControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private IvHistoryRepository ivHistory;
+
     @MockitoBean
     private MarketDataProvider provider;
+
+    @MockitoBean
+    private AtmIvRecorder ivRecorder;
 
     @Test
     void quoteRequiresAuth() throws Exception {
@@ -118,5 +130,39 @@ class MarketDataControllerTest {
                 .andExpect(status().isOk());
 
         verify(provider).getDailyBars("AAPL");
+    }
+
+    @Test
+    void ivHistoryRequiresAuth() throws Exception {
+        mockMvc.perform(get("/api/marketdata/iv-history/AAPL").with(anonymous()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void returnsIvHistorySeriesOldestFirst() throws Exception {
+        Instant at = Instant.parse("2026-06-26T20:00:00Z");
+        ivHistory.save(new IvHistory("AAPL", LocalDate.of(2026, 6, 30), 0.31, 100.0, 100.0, LocalDate.of(2026, 8, 21), at));
+        ivHistory.save(new IvHistory("AAPL", LocalDate.of(2026, 6, 29), 0.28, 99.0, 100.0, LocalDate.of(2026, 8, 21), at));
+
+        mockMvc.perform(get("/api/marketdata/iv-history/aapl"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].asOfDate").value("2026-06-29"))
+                .andExpect(jsonPath("$[0].atmIv").value(0.28))
+                .andExpect(jsonPath("$[1].asOfDate").value("2026-06-30"))
+                .andExpect(jsonPath("$[1].atmIv").value(0.31));
+    }
+
+    @Test
+    void runTriggersAccumulationAndReturnsTheSummary() throws Exception {
+        when(ivRecorder.recordDailyAtmIv())
+                .thenReturn(new RecordResult(LocalDate.of(2026, 7, 1), 2, List.of("ZZZZ")));
+
+        mockMvc.perform(post("/api/marketdata/iv-history/run"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.asOfDate").value("2026-07-01"))
+                .andExpect(jsonPath("$.recorded").value(2))
+                .andExpect(jsonPath("$.skipped[0]").value("ZZZZ"));
+
+        verify(ivRecorder).recordDailyAtmIv();
     }
 }

@@ -5,6 +5,7 @@ import com.terminalone.config.AppProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
@@ -40,7 +41,13 @@ public class MarketDataConfig {
                 .build();
     }
 
+    /**
+     * The real MarketData.app provider — the default. Under the {@code stub} profile
+     * this is switched off and {@link StubMarketDataProvider} takes its place, so the
+     * stack runs offline with no vendor token (Phase 3 AC 6.5).
+     */
     @Bean
+    @Profile("!stub")
     MarketDataProvider marketDataProvider(RestClient marketDataRestClient, AppProperties props,
                                           MarketDataCache cache, Clock clock, ObjectMapper mapper) {
         AppProperties.MarketData cfg = props.marketData();
