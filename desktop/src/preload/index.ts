@@ -107,6 +107,86 @@ export interface PriceHistory {
   bars: PriceBar[]
 }
 
+// ---- Engine (Phase 4): deterministic recommendations ----
+
+export type Direction = 'BULLISH' | 'BEARISH' | 'NEUTRAL'
+export type VolatilityRegime = 'LOW' | 'NORMAL' | 'HIGH'
+export type StrategyType = 'BULL_CALL_DEBIT_SPREAD'
+
+export interface RecommendationLeg {
+  action: string // 'BUY' | 'SELL'
+  optionSymbol: string
+  callPut: 'CALL' | 'PUT'
+  strike: number
+  expiry: string
+  bid: number
+  ask: number
+  mid: number
+  delta: number
+}
+
+// Structured, human-readable "why" behind each recommendation (mirrors the
+// backend RecommendationRationale). Every value here drove the selection.
+export interface RecommendationRationale {
+  signals: {
+    trendVote: number
+    macdVote: number
+    rsiVote: number
+    directionScore: number
+    conviction: number
+    emaFast: number
+    emaSlow: number
+    macdHistogram: number
+    rsi: number
+  }
+  regime: {
+    value: VolatilityRegime
+    reason: string
+    currentIv: number | null
+  }
+  selection: {
+    convictionBand: string
+    dte: number
+    longDeltaTarget: number
+    shortDeltaTarget: number
+    selectedLongDelta: number
+    selectedShortDelta: number
+  }
+  pricing: {
+    width: number
+    entryDebit: number
+    breakeven: number
+    probabilityOfProfit: number
+    maxProfit: number
+    maxLoss: number
+    riskReward: number
+    rawExpectedValue: number
+  }
+}
+
+export interface Recommendation {
+  id: number
+  symbol: string
+  strategy: StrategyType
+  direction: Direction
+  regime: VolatilityRegime
+  conviction: number
+  configVersion: number
+  expiry: string
+  legs: RecommendationLeg[]
+  entryDebit: number
+  probabilityOfProfit: number
+  maxProfit: number
+  maxLoss: number
+  riskReward: number
+  score: number
+  rationale: RecommendationRationale
+}
+
+export interface EngineRunResult {
+  recommendations: Recommendation[]
+}
+
 // Request shape sent to the backend; option-only fields omitted for stock.
 export interface PositionRequest {
   kind: 'STOCK' | 'OPTION'
@@ -143,6 +223,12 @@ const api = {
   marketData: {
     history: (symbol: string): Promise<ApiResult<PriceHistory>> =>
       ipcRenderer.invoke('marketdata:history', symbol)
+  },
+  engine: {
+    // Lever-pull: run the deterministic engine. Omit symbol to run over the
+    // whole portfolio; pass one to scope the run to a single underlying.
+    run: (symbol?: string): Promise<ApiResult<EngineRunResult>> =>
+      ipcRenderer.invoke('engine:run', symbol)
   }
 }
 
