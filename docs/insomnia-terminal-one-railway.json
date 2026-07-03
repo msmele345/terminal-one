@@ -1,0 +1,665 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-07-03T00:00:00.000Z",
+  "__export_source": "terminal-one",
+  "resources": [
+    {
+      "_id": "wrk_terminal_one_railway",
+      "parentId": null,
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "name": "Terminal One - Railway",
+      "description": "Postman/Insomnia-style requests for the Terminal One Railway backend.",
+      "scope": "collection",
+      "_type": "workspace"
+    },
+    {
+      "_id": "env_terminal_one_base",
+      "parentId": "wrk_terminal_one_railway",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "name": "Base Environment",
+      "data": {
+        "baseUrl": "https://terminal-one-production.up.railway.app",
+        "username": "REPLACE_WITH_APP_USER_USERNAME",
+        "password": "REPLACE_WITH_APP_USER_PASSWORD",
+        "token": "PASTE_LOGIN_TOKEN_HERE",
+        "symbol": "AAPL",
+        "positionId": "1"
+      },
+      "dataPropertyOrder": {
+        "&": [
+          "baseUrl",
+          "username",
+          "password",
+          "token",
+          "symbol",
+          "positionId"
+        ]
+      },
+      "color": null,
+      "isPrivate": false,
+      "metaSortKey": 1783036800000,
+      "_type": "environment"
+    },
+    {
+      "_id": "fld_health",
+      "parentId": "wrk_terminal_one_railway",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "name": "Health",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 100,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_api_health",
+      "parentId": "fld_health",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/health",
+      "name": "GET /api/health",
+      "description": "Public liveness endpoint. Does not require a bearer token.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": 100,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_actuator_health",
+      "parentId": "fld_health",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/actuator/health",
+      "name": "GET /actuator/health",
+      "description": "Public Spring Boot actuator health endpoint.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {},
+      "metaSortKey": 200,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "fld_auth",
+      "parentId": "wrk_terminal_one_railway",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "name": "Auth",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 200,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_login",
+      "parentId": "fld_auth",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/auth/login",
+      "name": "POST /api/auth/login",
+      "description": "Exchange Railway app credentials for a JWT. Copy the token field from the response into the environment token value.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"username\": \"{{ _.username }}\",\n  \"password\": \"{{ _.password }}\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {},
+      "metaSortKey": 100,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_whoami",
+      "parentId": "fld_auth",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/whoami",
+      "name": "GET /api/whoami",
+      "description": "Protected smoke test for the bearer token.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 200,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "fld_config",
+      "parentId": "wrk_terminal_one_railway",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "name": "Config",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 300,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_config_active",
+      "parentId": "fld_config",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/config/active",
+      "name": "GET /api/config/active",
+      "description": "Read the active deterministic engine config.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 100,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "fld_portfolio",
+      "parentId": "wrk_terminal_one_railway",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "name": "Portfolio",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 400,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_portfolio_positions",
+      "parentId": "fld_portfolio",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/portfolio/positions",
+      "name": "GET /api/portfolio/positions",
+      "description": "List stock and option positions.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 100,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_portfolio_summary",
+      "parentId": "fld_portfolio",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/portfolio/summary",
+      "name": "GET /api/portfolio/summary",
+      "description": "Portfolio totals with delayed market values.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 200,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_create_stock_position",
+      "parentId": "fld_portfolio",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/portfolio/positions",
+      "name": "POST /api/portfolio/positions - Stock",
+      "description": "Create a stock position.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"kind\": \"STOCK\",\n  \"symbol\": \"{{ _.symbol }}\",\n  \"quantity\": 100,\n  \"costBasis\": 150.25,\n  \"openedDate\": \"2026-01-15\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 300,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_create_option_position",
+      "parentId": "fld_portfolio",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/portfolio/positions",
+      "name": "POST /api/portfolio/positions - Option",
+      "description": "Create an option position.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"kind\": \"OPTION\",\n  \"symbol\": \"{{ _.symbol }}\",\n  \"optionType\": \"PUT\",\n  \"strike\": 200,\n  \"expiry\": \"2026-09-19\",\n  \"quantity\": 1,\n  \"costBasis\": 5.00,\n  \"side\": \"SHORT\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 400,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_update_stock_position",
+      "parentId": "fld_portfolio",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/portfolio/positions/{{ _.positionId }}",
+      "name": "PUT /api/portfolio/positions/:id - Stock",
+      "description": "Update a stock position. Set positionId in the environment first.",
+      "method": "PUT",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"kind\": \"STOCK\",\n  \"symbol\": \"{{ _.symbol }}\",\n  \"quantity\": 125,\n  \"costBasis\": 151.50,\n  \"openedDate\": \"2026-01-15\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 500,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_delete_stock_position",
+      "parentId": "fld_portfolio",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/portfolio/positions/{{ _.positionId }}",
+      "name": "DELETE /api/portfolio/positions/:id - Stock",
+      "description": "Delete a stock position. Set positionId in the environment first.",
+      "method": "DELETE",
+      "body": {},
+      "parameters": [
+        {
+          "name": "kind",
+          "value": "STOCK"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 600,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_import_portfolio_csv",
+      "parentId": "fld_portfolio",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/portfolio/import",
+      "name": "POST /api/portfolio/import",
+      "description": "Import portfolio rows from CSV text.",
+      "method": "POST",
+      "body": {
+        "mimeType": "text/plain",
+        "text": "kind,symbol,quantity,costBasis,openedDate,optionType,strike,expiry,side\nSTOCK,IBM,100,140.00,2026-01-10,,,,\nOPTION,IBM,1,2.00,2026-01-10,CALL,150,2026-12-18,LONG\n"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "text/plain"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 700,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "fld_marketdata",
+      "parentId": "wrk_terminal_one_railway",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "name": "Market Data",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 500,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_quote",
+      "parentId": "fld_marketdata",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/marketdata/quote/{{ _.symbol }}",
+      "name": "GET /api/marketdata/quote/:symbol",
+      "description": "Delayed stock quote.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 100,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_chain",
+      "parentId": "fld_marketdata",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/marketdata/chain/{{ _.symbol }}",
+      "name": "GET /api/marketdata/chain/:symbol",
+      "description": "Option chain for the configured chain DTE and strike limit.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 200,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_history",
+      "parentId": "fld_marketdata",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/marketdata/history/{{ _.symbol }}",
+      "name": "GET /api/marketdata/history/:symbol",
+      "description": "Daily price history.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 300,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_iv_history",
+      "parentId": "fld_marketdata",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/marketdata/iv-history/{{ _.symbol }}",
+      "name": "GET /api/marketdata/iv-history/:symbol",
+      "description": "Accumulated daily ATM IV history for a symbol.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 400,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_iv_history_run",
+      "parentId": "fld_marketdata",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/marketdata/iv-history/run",
+      "name": "POST /api/marketdata/iv-history/run",
+      "description": "On-demand trigger for daily ATM IV accumulation.",
+      "method": "POST",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 500,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "fld_engine",
+      "parentId": "wrk_terminal_one_railway",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "name": "Engine",
+      "description": "",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 600,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_engine_run_symbol",
+      "parentId": "fld_engine",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/engine/run",
+      "name": "POST /api/engine/run - Symbol",
+      "description": "Run deterministic recommendations for one symbol.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"symbol\": \"{{ _.symbol }}\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 100,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_engine_run_portfolio",
+      "parentId": "fld_engine",
+      "modified": 1783036800000,
+      "created": 1783036800000,
+      "url": "{{ _.baseUrl }}/api/engine/run",
+      "name": "POST /api/engine/run - Portfolio",
+      "description": "Run deterministic recommendations over portfolio underlyings.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}"
+      },
+      "metaSortKey": 200,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    }
+  ]
+}
