@@ -9,10 +9,16 @@
 See @docs/PRD.md to review project goals
 See @plans/terminal-one.md
 
+## Agent Orientation
+- Source of truth order: `plans/terminal-one.md` for current phase scope, `docs/strategy-matrix.md` for engine math/strategy behavior, `docs/PRD.md` for product intent.
+- Keep phase work scoped to the named acceptance criteria. Do not implement later-phase matrix cells or UI behavior unless the AC explicitly requires it.
+- If a requested AC is already checked in the plan, verify it against code/tests and strengthen coverage if useful; do not rewrite working code without cause.
+- Engine invariants: deterministic only, no LLM; read active engine config once per run; persist recommendations with the producing `config_version`; keep indicator/selection logic pure and unit-testable where practical.
+- Testing: pure engine math gets unit tests; API/persistence/config behavior gets Spring integration/controller tests; frontend tests are only required for UI behavior changes.
+
 ## Cadences to follow:
 1. TDD on any new feature code or bug fixes. Use Test Driven Development whenever possible. See the /tdd skill.
 2. Red green refactor. Reference the /tdd skill and follow it
-
 
 # Git Strategy and Instructions
 - Create feature branches off of develop for each new feature or task. Name branches using the format `feat/short-description` (e.g., `feature/spotify-integration`).

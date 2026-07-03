@@ -107,7 +107,7 @@ class EngineRunControllerTest {
                 .andExpect(jsonPath("$.recommendations[0].strategy").value("BULL_CALL_DEBIT_SPREAD"))
                 .andExpect(jsonPath("$.recommendations[0].direction").value("BULLISH"))
                 .andExpect(jsonPath("$.recommendations[0].regime").value("NORMAL"))
-                .andExpect(jsonPath("$.recommendations[0].configVersion").isNumber())
+                .andExpect(jsonPath("$.recommendations[0].configVersion").value(1))
                 .andExpect(jsonPath("$.recommendations[0].expiry").value(EXPIRY.toString()))
                 .andExpect(jsonPath("$.recommendations[0].legs[0].action").value("BUY"))
                 .andExpect(jsonPath("$.recommendations[0].legs[0].callPut").value("CALL"))
@@ -124,7 +124,7 @@ class EngineRunControllerTest {
                 .andExpect(jsonPath("$.recommendations[0].rationale.selection.longDeltaTarget").value(0.55));
 
         assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
-            assertThat(saved.getConfigVersion()).isNotNull();
+            assertThat(saved.getConfigVersion()).isEqualTo(1);
             assertThat(saved.getStrategy()).isEqualTo(StrategyType.BULL_CALL_DEBIT_SPREAD);
             assertThat(saved.getRationale()).contains("PHASE4_SINGLE_CELL_NORMAL");
         });
