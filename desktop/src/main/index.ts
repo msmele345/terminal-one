@@ -151,6 +151,14 @@ async function marketDataHistory(symbol: string) {
   return authedFetch(`/api/marketdata/history/${encodeURIComponent(symbol)}`)
 }
 
+async function runEngine(symbol?: string) {
+  return authedFetch('/api/engine/run', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify(symbol ? { symbol } : {})
+  })
+}
+
 function registerIpc(): void {
   ipcMain.handle('auth:login', (_e, username: string, password: string) => login(username, password))
   ipcMain.handle('auth:whoami', () => whoami())
@@ -163,6 +171,7 @@ function registerIpc(): void {
   ipcMain.handle('positions:delete', (_e, id: number, kind: string) => deletePosition(id, kind))
   ipcMain.handle('positions:import', (_e, csv: string) => importPositions(csv))
   ipcMain.handle('marketdata:history', (_e, symbol: string) => marketDataHistory(symbol))
+  ipcMain.handle('engine:run', (_e, symbol?: string) => runEngine(symbol))
 }
 
 app.whenReady().then(() => {

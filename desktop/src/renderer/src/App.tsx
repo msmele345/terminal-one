@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WhoamiPayload } from '../../preload'
 import { PortfolioConsole } from './portfolio/PortfolioConsole'
+import { RecommendationsPanel } from './engine/RecommendationsPanel'
 
 type View = 'loading' | 'login' | 'authed'
 
@@ -44,7 +45,12 @@ export default function App(): JSX.Element {
             }}
           />
         )}
-        {view === 'authed' && <PortfolioConsole />}
+        {view === 'authed' && (
+          <>
+            <PortfolioConsole />
+            <RecommendationsPanel />
+          </>
+        )}
       </main>
       <footer className="disclaimer">
         Personal tool — not financial advice. Advisory &amp; tracking only.
