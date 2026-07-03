@@ -3,6 +3,8 @@ package com.terminalone.engine;
 import com.terminalone.engine.config.EngineConfigSeeder;
 import com.terminalone.marketdata.BlackScholesOptionAnalytics;
 import com.terminalone.marketdata.CallPut;
+import com.terminalone.marketdata.IvHistory;
+import com.terminalone.marketdata.IvHistoryRepository;
 import com.terminalone.marketdata.MarketDataProvider;
 import com.terminalone.marketdata.OptionAnalytics;
 import com.terminalone.marketdata.OptionChain;
@@ -34,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
@@ -69,6 +72,9 @@ class EngineRunControllerTest {
     @Autowired
     private RecommendationRepository recommendations;
 
+    @Autowired
+    private IvHistoryRepository ivHistory;
+
     @MockitoBean
     private MarketDataProvider marketData;
 
@@ -95,6 +101,7 @@ class EngineRunControllerTest {
     @Test
     void bullishNormalUnderlyingProducesAndPersistsABullCallDebitSpread() throws Exception {
         addStock("AAPL", 100, "90.00");
+        seedNormalIvRankHistory("AAPL");
         when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
         when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
 
@@ -120,19 +127,20 @@ class EngineRunControllerTest {
                 .andExpect(jsonPath("$.recommendations[0].maxProfit").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].maxLoss").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].rationale.signals.trendVote").isNumber())
-                .andExpect(jsonPath("$.recommendations[0].rationale.regime.reason").value("PHASE4_SINGLE_CELL_NORMAL"))
+                .andExpect(jsonPath("$.recommendations[0].rationale.regime.reason").value(containsString("IV_RANK")))
                 .andExpect(jsonPath("$.recommendations[0].rationale.selection.longDeltaTarget").value(0.55));
 
         assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
             assertThat(saved.getConfigVersion()).isEqualTo(1);
             assertThat(saved.getStrategy()).isEqualTo(StrategyType.BULL_CALL_DEBIT_SPREAD);
-            assertThat(saved.getRationale()).contains("PHASE4_SINGLE_CELL_NORMAL");
+            assertThat(saved.getRationale()).contains("IV_RANK");
         });
     }
 
     @Test
     void bearishNormalUnderlyingProducesAndPersistsABearPutDebitSpread() throws Exception {
         addStock("XYZ", 100, "150.00");
+        seedNormalIvRankHistory("XYZ");
         when(marketData.getDailyBars("XYZ")).thenReturn(bearishHistory("XYZ"));
         when(marketData.getChain("XYZ")).thenReturn(putChain("XYZ"));
 
@@ -157,6 +165,14 @@ class EngineRunControllerTest {
             assertThat(saved.getStrategy()).isEqualTo(StrategyType.BEAR_PUT_DEBIT_SPREAD);
             assertThat(saved.getDirection()).isEqualTo(Direction.BEARISH);
         });
+    }
+
+    private void seedNormalIvRankHistory(String symbol) {
+        for (int i = 0; i < 60; i++) {
+            double atmIv = 0.20 + (0.20 * i / 59.0);
+            ivHistory.save(new IvHistory(symbol, TODAY.minusDays(60 - i), atmIv,
+                    100.0, 100.0, EXPIRY, AS_OF));
+        }
     }
 
     private void addStock(String symbol, int qty, String cost) throws Exception {

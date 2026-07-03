@@ -31,6 +31,7 @@ public class RecommendationEngine {
     private final PositionSource positions;
     private final MarketDataProvider marketData;
     private final TechnicalSignalCalculator signals;
+    private final VolatilityRegimeCalculator regimes;
     private final DirectionalStrategySelector strategySelector;
     private final RecommendationRepository recommendations;
     private final ObjectMapper objectMapper;
@@ -42,6 +43,7 @@ public class RecommendationEngine {
             PositionSource positions,
             MarketDataProvider marketData,
             TechnicalSignalCalculator signals,
+            VolatilityRegimeCalculator regimes,
             DirectionalStrategySelector strategySelector,
             RecommendationRepository recommendations,
             ObjectMapper objectMapper,
@@ -50,6 +52,7 @@ public class RecommendationEngine {
         this.positions = positions;
         this.marketData = marketData;
         this.signals = signals;
+        this.regimes = regimes;
         this.strategySelector = strategySelector;
         this.recommendations = recommendations;
         this.objectMapper = objectMapper;
@@ -73,17 +76,15 @@ public class RecommendationEngine {
         EngineConfig config = active.config();
         PriceHistory history = safe(() -> marketData.getDailyBars(symbol));
         DirectionSignal signal = signals.calculate(history, config.signal());
+        OptionChain chain = safe(() -> marketData.getChain(symbol));
 
-        // The real IV-rank regime computation lands with Phase 5 AC2; until then
-        // every run is treated as NORMAL, so only the debit cells are reachable.
-        VolatilityRegimeResult regime = VolatilityRegimeResult.phase4Normal(null);
+        VolatilityRegimeResult regime = regimes.calculate(symbol, chain, history, config.regime());
         java.util.Optional<StrategyType> strategy = DirectionalStrategyMatrix.select(
                 signal.direction(), regime.regime(), signal.conviction(), config.conviction());
         if (strategy.isEmpty()) {
             return java.util.Optional.empty();
         }
 
-        OptionChain chain = safe(() -> marketData.getChain(symbol));
         return strategySelector.select(symbol, strategy.get(), signal, regime, chain, config)
                 .map(candidate -> {
                     Recommendation saved = recommendations.save(toEntity(candidate, active.version()));
@@ -160,4 +161,3 @@ public class RecommendationEngine {
         }
     }
 }
-    

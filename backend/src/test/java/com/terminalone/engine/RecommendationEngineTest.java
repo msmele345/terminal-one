@@ -56,6 +56,9 @@ class RecommendationEngineTest {
     private TechnicalSignalCalculator technicalSignalCalculator;
 
     @Mock
+    private VolatilityRegimeCalculator volatilityRegimeCalculator;
+
+    @Mock
     private DirectionalStrategySelector strategySelector;
 
     @Mock
@@ -105,6 +108,8 @@ class RecommendationEngineTest {
 
         // Arrange — candidate returned by selector
         VolatilityRegimeResult regime = VolatilityRegimeResult.phase4Normal(null);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(regime);
         RecommendationLeg longLeg = new RecommendationLeg(
                 "BUY", "AAPL-100C", CallPut.CALL, 100.0, EXPIRY, 5.0, 5.20, 5.10, 0.55);
         RecommendationLeg shortLeg = new RecommendationLeg(

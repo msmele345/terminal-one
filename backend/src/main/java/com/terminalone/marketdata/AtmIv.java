@@ -11,5 +11,5 @@ import java.time.LocalDate;
  * @param expiration      the expiry the reading was sampled from
  * @param underlyingPrice the underlying's price at sample time
  */
-record AtmIv(double impliedVol, double atmStrike, LocalDate expiration, double underlyingPrice) {
+public record AtmIv(double impliedVol, double atmStrike, LocalDate expiration, double underlyingPrice) {
 }

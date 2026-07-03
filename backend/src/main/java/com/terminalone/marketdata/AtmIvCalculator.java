@@ -18,7 +18,7 @@ import java.util.Optional;
  * zero/NaN — when the chain is unusable: no spot, no future expiry, or no leg with
  * a valid two-sided quote (AC6: no silent zeros).
  */
-final class AtmIvCalculator {
+public final class AtmIvCalculator {
 
     private static final double STRIKE_EPS = 1e-6;
     private static final double DAYS_PER_YEAR = 365.0;
@@ -26,8 +26,8 @@ final class AtmIvCalculator {
     private AtmIvCalculator() {
     }
 
-    static Optional<AtmIv> compute(OptionChain chain, LocalDate today,
-                                   OptionAnalytics analytics, double riskFreeRate) {
+    public static Optional<AtmIv> compute(OptionChain chain, LocalDate today,
+                                          OptionAnalytics analytics, double riskFreeRate) {
         if (chain == null || chain.contracts().isEmpty() || chain.underlyingPrice() <= 0.0) {
             return Optional.empty();
         }
