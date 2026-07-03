@@ -130,6 +130,35 @@ class EngineRunControllerTest {
         });
     }
 
+    @Test
+    void bearishNormalUnderlyingProducesAndPersistsABearPutDebitSpread() throws Exception {
+        addStock("XYZ", 100, "150.00");
+        when(marketData.getDailyBars("XYZ")).thenReturn(bearishHistory("XYZ"));
+        when(marketData.getChain("XYZ")).thenReturn(putChain("XYZ"));
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(1)))
+                .andExpect(jsonPath("$.recommendations[0].symbol").value("XYZ"))
+                .andExpect(jsonPath("$.recommendations[0].strategy").value("BEAR_PUT_DEBIT_SPREAD"))
+                .andExpect(jsonPath("$.recommendations[0].direction").value("BEARISH"))
+                .andExpect(jsonPath("$.recommendations[0].regime").value("NORMAL"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].action").value("BUY"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].callPut").value("PUT"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].strike").value(100.0))
+                .andExpect(jsonPath("$.recommendations[0].legs[1].action").value("SELL"))
+                .andExpect(jsonPath("$.recommendations[0].legs[1].callPut").value("PUT"))
+                .andExpect(jsonPath("$.recommendations[0].legs[1].strike").value(95.0));
+
+        assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
+            assertThat(saved.getConfigVersion()).isEqualTo(1);
+            assertThat(saved.getStrategy()).isEqualTo(StrategyType.BEAR_PUT_DEBIT_SPREAD);
+            assertThat(saved.getDirection()).isEqualTo(Direction.BEARISH);
+        });
+    }
+
     private void addStock(String symbol, int qty, String cost) throws Exception {
         mockMvc.perform(post("/api/portfolio/positions")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -150,23 +179,47 @@ class EngineRunControllerTest {
         return new PriceHistory(symbol, AS_OF, true, bars);
     }
 
+    private PriceHistory bearishHistory(String symbol) {
+        List<PriceBar> bars = new ArrayList<>();
+        LocalDate start = TODAY.minusDays(119);
+        for (int i = 0; i < 120; i++) {
+            double close = 155.0 - i * 0.50 - Math.max(0, i - 80) * 0.40;
+            bars.add(new PriceBar(start.plusDays(i), close + 0.35, close + 0.85,
+                    close - 0.65, close, 1_000_000 + i));
+        }
+        return new PriceHistory(symbol, AS_OF, true, bars);
+    }
+
+    /** Puts at and below spot only, so the long leg pins to the ATM 100 strike in every band. */
+    private OptionChain putChain(String symbol) {
+        double spot = 100.0;
+        double sigma = 0.30;
+        return new OptionChain(symbol, spot, AS_OF, true, List.of(
+                pricedContract(symbol, CallPut.PUT, 80.0, spot, sigma),
+                pricedContract(symbol, CallPut.PUT, 85.0, spot, sigma),
+                pricedContract(symbol, CallPut.PUT, 90.0, spot, sigma),
+                pricedContract(symbol, CallPut.PUT, 95.0, spot, sigma),
+                pricedContract(symbol, CallPut.PUT, 100.0, spot, sigma)));
+    }
+
     private OptionChain normalIvChain(String symbol) {
         double spot = 100.0;
         double sigma = 0.30;
         return new OptionChain(symbol, spot, AS_OF, true, List.of(
-                pricedCall(symbol, 90.0, spot, sigma),
-                pricedCall(symbol, 95.0, spot, sigma),
-                pricedCall(symbol, 100.0, spot, sigma),
-                pricedCall(symbol, 105.0, spot, sigma),
-                pricedCall(symbol, 110.0, spot, sigma),
-                pricedCall(symbol, 115.0, spot, sigma)));
+                pricedContract(symbol, CallPut.CALL, 90.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 95.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 100.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 105.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 110.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 115.0, spot, sigma)));
     }
 
-    private OptionContract pricedCall(String symbol, double strike, double spot, double sigma) {
+    private OptionContract pricedContract(String symbol, CallPut type, double strike, double spot,
+            double sigma) {
         double t = ChronoUnit.DAYS.between(TODAY, EXPIRY) / 365.0;
-        double price = analytics.value(new OptionInput(spot, strike, t, 0.04, 0.0, sigma, CallPut.CALL)).price();
+        double price = analytics.value(new OptionInput(spot, strike, t, 0.04, 0.0, sigma, type)).price();
         double bid = Math.max(0.01, price - 0.02);
         double ask = Math.max(bid + 0.02, price + 0.02);
-        return new OptionContract(symbol + "-" + strike, CallPut.CALL, strike, EXPIRY, bid, ask, 1_000);
+        return new OptionContract(symbol + "-" + type + "-" + strike, type, strike, EXPIRY, bid, ask, 1_000);
     }
 }

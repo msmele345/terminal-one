@@ -111,7 +111,14 @@ export interface PriceHistory {
 
 export type Direction = 'BULLISH' | 'BEARISH' | 'NEUTRAL'
 export type VolatilityRegime = 'LOW' | 'NORMAL' | 'HIGH'
-export type StrategyType = 'BULL_CALL_DEBIT_SPREAD'
+// Phase 5: the full §2 directional matrix (income overlays arrive in Phase 6)
+export type StrategyType =
+  | 'BULL_CALL_DEBIT_SPREAD'
+  | 'BEAR_PUT_DEBIT_SPREAD'
+  | 'BULL_PUT_CREDIT_SPREAD'
+  | 'BEAR_CALL_CREDIT_SPREAD'
+  | 'LONG_CALL'
+  | 'LONG_PUT'
 
 export interface RecommendationLeg {
   action: string // 'BUY' | 'SELL'

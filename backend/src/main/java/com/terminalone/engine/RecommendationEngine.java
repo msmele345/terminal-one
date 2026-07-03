@@ -31,7 +31,7 @@ public class RecommendationEngine {
     private final PositionSource positions;
     private final MarketDataProvider marketData;
     private final TechnicalSignalCalculator signals;
-    private final BullCallDebitSpreadSelector bullCallDebitSpreadSelector;
+    private final DirectionalStrategySelector strategySelector;
     private final RecommendationRepository recommendations;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -42,7 +42,7 @@ public class RecommendationEngine {
             PositionSource positions,
             MarketDataProvider marketData,
             TechnicalSignalCalculator signals,
-            BullCallDebitSpreadSelector bullCallDebitSpreadSelector,
+            DirectionalStrategySelector strategySelector,
             RecommendationRepository recommendations,
             ObjectMapper objectMapper,
             Clock clock) {
@@ -50,7 +50,7 @@ public class RecommendationEngine {
         this.positions = positions;
         this.marketData = marketData;
         this.signals = signals;
-        this.bullCallDebitSpreadSelector = bullCallDebitSpreadSelector;
+        this.strategySelector = strategySelector;
         this.recommendations = recommendations;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -73,17 +73,18 @@ public class RecommendationEngine {
         EngineConfig config = active.config();
         PriceHistory history = safe(() -> marketData.getDailyBars(symbol));
         DirectionSignal signal = signals.calculate(history, config.signal());
-        if (signal.direction() != Direction.BULLISH || signal.conviction() < config.conviction().tradeFloor()) {
+
+        // The real IV-rank regime computation lands with Phase 5 AC2; until then
+        // every run is treated as NORMAL, so only the debit cells are reachable.
+        VolatilityRegimeResult regime = VolatilityRegimeResult.phase4Normal(null);
+        java.util.Optional<StrategyType> strategy = DirectionalStrategyMatrix.select(
+                signal.direction(), regime.regime(), signal.conviction(), config.conviction());
+        if (strategy.isEmpty()) {
             return java.util.Optional.empty();
         }
 
         OptionChain chain = safe(() -> marketData.getChain(symbol));
-        VolatilityRegimeResult regime = VolatilityRegimeResult.phase4Normal(null);
-        if (regime.regime() != VolatilityRegime.NORMAL) {
-            return java.util.Optional.empty();
-        }
-
-        return bullCallDebitSpreadSelector.select(symbol, signal, regime, chain, config)
+        return strategySelector.select(symbol, strategy.get(), signal, regime, chain, config)
                 .map(candidate -> {
                     Recommendation saved = recommendations.save(toEntity(candidate, active.version()));
                     return RecommendationResponse.from(saved, candidate);
@@ -91,8 +92,16 @@ public class RecommendationEngine {
     }
 
     private Recommendation toEntity(RecommendationCandidate candidate, int configVersion) {
-        RecommendationLeg longLeg = candidate.legs().get(0);
-        RecommendationLeg shortLeg = candidate.legs().get(1);
+        // "Long" columns hold the bought leg, "short" the sold one; long
+        // single-leg structures (LONG_CALL / LONG_PUT) have no sold leg.
+        RecommendationLeg bought = candidate.legs().stream()
+                .filter(l -> "BUY".equals(l.action()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("candidate has no bought leg"));
+        RecommendationLeg sold = candidate.legs().stream()
+                .filter(l -> "SELL".equals(l.action()))
+                .findFirst()
+                .orElse(null);
         return new Recommendation(
                 candidate.symbol(),
                 candidate.strategy(),
@@ -102,10 +111,10 @@ public class RecommendationEngine {
                 RecommendationStatus.PAPER,
                 configVersion,
                 candidate.expiry(),
-                longLeg.optionSymbol(),
-                longLeg.strike(),
-                shortLeg.optionSymbol(),
-                shortLeg.strike(),
+                bought.optionSymbol(),
+                bought.strike(),
+                sold == null ? null : sold.optionSymbol(),
+                sold == null ? null : sold.strike(),
                 candidate.entryDebit(),
                 candidate.probabilityOfProfit(),
                 candidate.maxProfit(),

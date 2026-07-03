@@ -56,7 +56,7 @@ class RecommendationEngineTest {
     private TechnicalSignalCalculator technicalSignalCalculator;
 
     @Mock
-    private BullCallDebitSpreadSelector bullCallDebitSpreadSelector;
+    private DirectionalStrategySelector strategySelector;
 
     @Mock
     private RecommendationRepository recommendationRepository;
@@ -120,8 +120,9 @@ class RecommendationEngineTest {
                 "AAPL", StrategyType.BULL_CALL_DEBIT_SPREAD, signal, regime, EXPIRY,
                 List.of(longLeg, shortLeg), 3.50, 0.72, 6.50, 3.50, 1.86, 85.0, rationale);
 
-        when(bullCallDebitSpreadSelector.select(
-                eq("AAPL"), eq(signal), eq(regime), eq(chain), eq(engineConfig)))
+        when(strategySelector.select(
+                eq("AAPL"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
+                eq(chain), eq(engineConfig)))
                 .thenReturn(Optional.of(candidate));
 
         // Arrange — persisted entity
