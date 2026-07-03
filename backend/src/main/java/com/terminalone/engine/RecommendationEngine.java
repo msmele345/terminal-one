@@ -11,6 +11,9 @@ import com.terminalone.marketdata.PriceHistory;
 import com.terminalone.portfolio.OptionPosition;
 import com.terminalone.portfolio.PositionSource;
 import com.terminalone.portfolio.StockPosition;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,14 +36,16 @@ public class RecommendationEngine {
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
+    private static final Logger logger = LoggerFactory.getLogger(RecommendationEngine.class);
+
     public RecommendationEngine(EngineConfigProvider configProvider,
-                                PositionSource positions,
-                                MarketDataProvider marketData,
-                                TechnicalSignalCalculator signals,
-                                BullCallDebitSpreadSelector bullCallDebitSpreadSelector,
-                                RecommendationRepository recommendations,
-                                ObjectMapper objectMapper,
-                                Clock clock) {
+            PositionSource positions,
+            MarketDataProvider marketData,
+            TechnicalSignalCalculator signals,
+            BullCallDebitSpreadSelector bullCallDebitSpreadSelector,
+            RecommendationRepository recommendations,
+            ObjectMapper objectMapper,
+            Clock clock) {
         this.configProvider = configProvider;
         this.positions = positions;
         this.marketData = marketData;
@@ -141,7 +146,9 @@ public class RecommendationEngine {
         try {
             return call.get();
         } catch (RuntimeException e) {
+            logger.warn("Exception Occurred During safe() call. msg: " + e.getLocalizedMessage());
             return null;
         }
     }
 }
+    
