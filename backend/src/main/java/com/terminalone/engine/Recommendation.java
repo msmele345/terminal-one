@@ -57,10 +57,11 @@ public class Recommendation {
     @Column(name = "long_strike", nullable = false, precision = 19, scale = 4)
     private BigDecimal longStrike;
 
-    @Column(name = "short_option_symbol", nullable = false, length = 64)
+    /** Null for long single-leg structures (LONG_CALL / LONG_PUT), which have no sold leg. */
+    @Column(name = "short_option_symbol", length = 64)
     private String shortOptionSymbol;
 
-    @Column(name = "short_strike", nullable = false, precision = 19, scale = 4)
+    @Column(name = "short_strike", precision = 19, scale = 4)
     private BigDecimal shortStrike;
 
     @Column(name = "entry_debit", nullable = false, precision = 19, scale = 4)
@@ -103,7 +104,7 @@ public class Recommendation {
                    String longOptionSymbol,
                    double longStrike,
                    String shortOptionSymbol,
-                   double shortStrike,
+                   Double shortStrike,
                    double entryDebit,
                    double probabilityOfProfit,
                    double maxProfit,
@@ -123,7 +124,7 @@ public class Recommendation {
         this.longOptionSymbol = longOptionSymbol;
         this.longStrike = decimal(longStrike);
         this.shortOptionSymbol = shortOptionSymbol;
-        this.shortStrike = decimal(shortStrike);
+        this.shortStrike = shortStrike == null ? null : decimal(shortStrike);
         this.entryDebit = decimal(entryDebit);
         this.probabilityOfProfit = decimal(probabilityOfProfit);
         this.maxProfit = decimal(maxProfit);

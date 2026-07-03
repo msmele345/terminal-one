@@ -130,6 +130,8 @@ The app bounds-checks config before activation (PRD FR-29). If your INSERT is re
 
 Also: malformed JSON (missing brace/comma) fails the `::jsonb` cast — paste the *whole* object, not a fragment.
 
+Regime behavior: `regime.metric=IV_RANK` uses current ATM IV from the option chain against stored `iv_history` once at least `regime.minIvHistoryDays` readings exist for the symbol. Until then, the engine bootstraps with the documented 20-day Bollinger-width percentile over trailing daily bars and includes `BOLLINGER_WIDTH_PCTL` in the recommendation rationale.
+
 ---
 
 ## 7. Rollback

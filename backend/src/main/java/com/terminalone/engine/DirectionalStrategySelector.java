@@ -1,0 +1,362 @@
+package com.terminalone.engine;
+
+import com.terminalone.engine.config.EngineConfig;
+import com.terminalone.marketdata.CallPut;
+import com.terminalone.marketdata.OptionAnalytics;
+import com.terminalone.marketdata.OptionChain;
+import com.terminalone.marketdata.OptionContract;
+import com.terminalone.marketdata.OptionInput;
+import com.terminalone.marketdata.OptionValuation;
+import org.springframework.stereotype.Component;
+
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.function.Predicate;
+
+/**
+ * Builds the concrete option structure for a directional strategy-matrix cell:
+ * debit verticals (§4.2), credit verticals (§4.1), and the high-conviction long
+ * single leg (§4.3). Strikes are chosen by target |delta| off the live chain,
+ * expiries from the structure's DTE window (§5), and POP/max-profit/loss via
+ * the same in-house Black-Scholes analytics (D22).
+ *
+ * <p>Sign convention: {@code entryDebit} is the net premium paid per share —
+ * positive for debit/long structures, negative (a credit received) for credit
+ * spreads.</p>
+ *
+ * <p>Phase 5 AC1 scope: structure selection. The full §6 guardrails with logged
+ * rejection reasons, §7 contract sizing, and the §8 regime-fit ranking land
+ * with the later Phase 5 ACs (only the structural-validity, open-interest, and
+ * debit reward:risk checks carried over from Phase 4 apply here).</p>
+ */
+@Component
+class DirectionalStrategySelector {
+
+    private static final double RISK_FREE_RATE = 0.04;
+    private static final double DAYS_PER_YEAR = 365.0;
+    private static final double SQRT_2PI = Math.sqrt(2.0 * Math.PI);
+
+    private final OptionAnalytics analytics;
+    private final Clock clock;
+
+    DirectionalStrategySelector(OptionAnalytics analytics, Clock clock) {
+        this.analytics = analytics;
+        this.clock = clock;
+    }
+
+    Optional<RecommendationCandidate> select(String symbol, StrategyType strategy,
+                                             DirectionSignal signal,
+                                             VolatilityRegimeResult regime,
+                                             OptionChain chain,
+                                             EngineConfig config) {
+        if (chain == null || chain.underlyingPrice() <= 0.0 || chain.contracts().isEmpty()) {
+            return Optional.empty();
+        }
+        Structure structure = Structure.of(strategy);
+        LocalDate today = LocalDate.now(clock);
+        EngineConfig.IntRange dteTarget = structure.credit()
+                ? config.expiry().creditDteTarget() : config.expiry().debitDteTarget();
+        EngineConfig.IntRange dteWindow = structure.credit()
+                ? config.expiry().creditDteWindow() : config.expiry().debitDteWindow();
+        Optional<LocalDate> expiry = selectExpiry(chain, today, dteTarget, dteWindow);
+        if (expiry.isEmpty()) {
+            return Optional.empty();
+        }
+        int dte = (int) ChronoUnit.DAYS.between(today, expiry.get());
+        double timeToExpiry = dte / DAYS_PER_YEAR;
+        String band = convictionBand(signal.conviction(), config.conviction());
+
+        List<PricedContract> contracts = chain.contracts().stream()
+                .filter(c -> c.callPut() == structure.optionType())
+                .filter(c -> c.expiration().equals(expiry.get()))
+                .filter(c -> c.openInterest() >= config.filters().minOpenInterest())
+                .filter(c -> c.bid() > 0.0 && c.ask() > c.bid())
+                .map(c -> price(c, chain.underlyingPrice(), timeToExpiry))
+                .flatMap(Optional::stream)
+                .toList();
+
+        Selected selected = switch (structure.kind()) {
+            case DEBIT_SPREAD -> debitSpread(structure, band, contracts, config);
+            case CREDIT_SPREAD -> creditSpread(structure, band, contracts, config);
+            case LONG_SINGLE -> longSingleLeg(structure, contracts, config);
+        };
+        if (selected == null) {
+            return Optional.empty();
+        }
+
+        double pop = probabilityOfFinishing(structure, chain.underlyingPrice(), selected.breakeven(),
+                timeToExpiry, selected.averageIv());
+        double rawEv = pop * selected.maxProfit() - (1.0 - pop) * selected.maxLoss();
+        double convFactor = 0.5 + 0.5 * (signal.conviction() / 100.0);
+        // Regime-fit stays at the neutral factor until the §8 ranking objective lands (Phase 5 ranking AC).
+        double score = rawEv * config.ranking().regimeFitNeutral() * convFactor;
+        double riskReward = selected.maxProfit() / selected.maxLoss();
+
+        RecommendationRationale rationale = new RecommendationRationale(
+                signal.toRationale(),
+                new RecommendationRationale.Regime(regime.regime(), regime.reason(), selected.averageIv()),
+                new RecommendationRationale.Selection(band, dte,
+                        selected.longDeltaTarget(), selected.shortDeltaTarget(),
+                        selected.selectedLongDelta(), selected.selectedShortDelta()),
+                new RecommendationRationale.Pricing(selected.width(), selected.entryDebit(),
+                        selected.breakeven(), pop, selected.maxProfit(), selected.maxLoss(),
+                        riskReward, rawEv));
+
+        return Optional.of(new RecommendationCandidate(symbol, strategy, signal, regime, expiry.get(),
+                selected.legs(), selected.entryDebit(), pop, selected.maxProfit(), selected.maxLoss(),
+                riskReward, score, rationale));
+    }
+
+    /** §4.2 — buy the long leg by delta, cap with a further-OTM short leg by delta. */
+    private Selected debitSpread(Structure structure, String band, List<PricedContract> contracts,
+                                 EngineConfig config) {
+        if (contracts.size() < 2) {
+            return null;
+        }
+        double longTarget = deltaForBand(config.strikes().debitLongDelta(), band);
+        double shortTarget = deltaForBand(config.strikes().debitShortDelta(), band);
+        PricedContract longLeg = nearestAbsDelta(contracts, longTarget);
+        Optional<PricedContract> shortLeg = contracts.stream()
+                .filter(furtherOtmThan(structure, longLeg.strike()))
+                .min(Comparator.comparingDouble(c -> Math.abs(c.absDelta() - shortTarget)));
+        if (shortLeg.isEmpty()) {
+            return null;
+        }
+
+        double width = Math.abs(shortLeg.get().strike() - longLeg.strike());
+        double debit = longLeg.mid() - shortLeg.get().mid();
+        if (width <= 0.0 || debit <= 0.0 || debit >= width) {
+            return null;
+        }
+        double maxLoss = debit * 100.0;
+        double maxProfit = (width - debit) * 100.0;
+        if (maxProfit / maxLoss < config.filters().minRewardRiskDebit()) {
+            return null;
+        }
+        double breakeven = structure.optionType() == CallPut.CALL
+                ? longLeg.strike() + debit
+                : longLeg.strike() - debit;
+        return new Selected(
+                List.of(leg("BUY", longLeg), leg("SELL", shortLeg.get())),
+                debit, width, breakeven, maxProfit, maxLoss,
+                0.5 * (longLeg.iv() + shortLeg.get().iv()),
+                longTarget, shortTarget, longLeg.absDelta(), shortLeg.get().absDelta());
+    }
+
+    /** §4.1 — sell the short leg by delta, buy protection one spread-width further OTM. */
+    private Selected creditSpread(Structure structure, String band, List<PricedContract> contracts,
+                                  EngineConfig config) {
+        if (contracts.size() < 2) {
+            return null;
+        }
+        double shortTarget = deltaForBand(config.strikes().creditShortDelta(), band);
+        PricedContract shortLeg = nearestAbsDelta(contracts, shortTarget);
+        double protectionStrike = structure.optionType() == CallPut.PUT
+                ? shortLeg.strike() - config.strikes().creditSpreadWidth()
+                : shortLeg.strike() + config.strikes().creditSpreadWidth();
+        Optional<PricedContract> longLeg = contracts.stream()
+                .filter(furtherOtmThan(structure, shortLeg.strike()))
+                .min(Comparator.comparingDouble(c -> Math.abs(c.strike() - protectionStrike)));
+        if (longLeg.isEmpty()) {
+            return null;
+        }
+
+        double width = Math.abs(shortLeg.strike() - longLeg.get().strike());
+        double credit = shortLeg.mid() - longLeg.get().mid();
+        if (width <= 0.0 || credit <= 0.0 || credit >= width) {
+            return null;
+        }
+        double maxProfit = credit * 100.0;
+        double maxLoss = (width - credit) * 100.0;
+        double breakeven = structure.optionType() == CallPut.PUT
+                ? shortLeg.strike() - credit
+                : shortLeg.strike() + credit;
+        // The protection leg is width-driven (§4.1), so it carries no delta target.
+        return new Selected(
+                List.of(leg("SELL", shortLeg), leg("BUY", longLeg.get())),
+                -credit, width, breakeven, maxProfit, maxLoss,
+                0.5 * (shortLeg.iv() + longLeg.get().iv()),
+                0.0, shortTarget, longLeg.get().absDelta(), shortLeg.absDelta());
+    }
+
+    /** §4.3 — buy a single slightly-ITM leg (high conviction + LOW IV only, enforced upstream). */
+    private Selected longSingleLeg(Structure structure, List<PricedContract> contracts,
+                                   EngineConfig config) {
+        if (contracts.isEmpty()) {
+            return null;
+        }
+        double target = config.strikes().longSingleLegDelta();
+        PricedContract chosen = nearestAbsDelta(contracts, target);
+        double premium = chosen.mid();
+        if (premium <= 0.0) {
+            return null;
+        }
+        double maxLoss = premium * 100.0;
+        boolean call = structure.optionType() == CallPut.CALL;
+        double breakeven = call ? chosen.strike() + premium : chosen.strike() - premium;
+        // A long option's true max profit is unbounded; model it at a one-sigma
+        // favorable move so §8's EV has a finite, comparable basis.
+        double oneSigmaMove = chosen.spot()
+                * Math.exp((call ? 1.0 : -1.0) * chosen.iv() * Math.sqrt(chosen.timeToExpiry()));
+        double intrinsicAtMove = call ? oneSigmaMove - chosen.strike() : chosen.strike() - oneSigmaMove;
+        double modeledProfit = (intrinsicAtMove - premium) * 100.0;
+        if (modeledProfit <= 0.0 || modeledProfit / maxLoss < config.filters().minRewardRiskDebit()) {
+            return null;
+        }
+        return new Selected(
+                List.of(leg("BUY", chosen)),
+                premium, 0.0, breakeven, modeledProfit, maxLoss, chosen.iv(),
+                target, 0.0, chosen.absDelta(), 0.0);
+    }
+
+    private Optional<LocalDate> selectExpiry(OptionChain chain, LocalDate today,
+                                             EngineConfig.IntRange target,
+                                             EngineConfig.IntRange window) {
+        double targetMid = 0.5 * (target.min() + target.max());
+        return chain.contracts().stream()
+                .map(OptionContract::expiration)
+                .distinct()
+                .filter(e -> e.isAfter(today))
+                .filter(e -> {
+                    long dte = ChronoUnit.DAYS.between(today, e);
+                    return dte >= window.min() && dte <= window.max();
+                })
+                .min(Comparator
+                        .comparingDouble((LocalDate e) -> Math.abs(ChronoUnit.DAYS.between(today, e) - targetMid))
+                        .thenComparing(Comparator.naturalOrder()));
+    }
+
+    private Optional<PricedContract> price(OptionContract contract, double spot, double timeToExpiry) {
+        OptionInput base = new OptionInput(spot, contract.strike(), timeToExpiry,
+                RISK_FREE_RATE, 0.0, 0.0, contract.callPut());
+        double iv = analytics.impliedVolatilityFromQuote(base, contract.bid(), contract.ask());
+        if (!Double.isFinite(iv)) {
+            return Optional.empty();
+        }
+        OptionValuation valuation = analytics.value(new OptionInput(spot, contract.strike(), timeToExpiry,
+                RISK_FREE_RATE, 0.0, iv, contract.callPut()));
+        return Optional.of(new PricedContract(contract, iv, valuation.delta(), contract.mid(),
+                spot, timeToExpiry));
+    }
+
+    private static PricedContract nearestAbsDelta(List<PricedContract> contracts, double target) {
+        return contracts.stream()
+                .min(Comparator.comparingDouble(c -> Math.abs(c.absDelta() - target)))
+                .orElseThrow();
+    }
+
+    /** Further out-of-the-money than the given strike, for this structure's option type. */
+    private static Predicate<PricedContract> furtherOtmThan(Structure structure, double strike) {
+        return structure.optionType() == CallPut.CALL
+                ? c -> c.strike() > strike
+                : c -> c.strike() < strike;
+    }
+
+    private static RecommendationLeg leg(String action, PricedContract priced) {
+        OptionContract c = priced.contract();
+        return new RecommendationLeg(action, c.optionSymbol(), c.callPut(), c.strike(), c.expiration(),
+                c.bid(), c.ask(), priced.mid(), priced.delta());
+    }
+
+    private static String convictionBand(int conviction, EngineConfig.Conviction config) {
+        if (conviction >= config.bands().high().min()) {
+            return "high";
+        }
+        if (conviction >= config.bands().confident().min()) {
+            return "confident";
+        }
+        return "standard";
+    }
+
+    private static double deltaForBand(EngineConfig.DeltaBands deltas, String band) {
+        return switch (band) {
+            case "high" -> deltas.high();
+            case "confident" -> deltas.confident();
+            default -> deltas.standard();
+        };
+    }
+
+    /**
+     * Risk-neutral probability that the underlying finishes on the structure's
+     * profitable side of breakeven: above it for bullish structures, below it
+     * for bearish ones.
+     */
+    private static double probabilityOfFinishing(Structure structure, double spot, double breakeven,
+                                                 double timeToExpiry, double iv) {
+        double above = probabilityAbove(spot, breakeven, timeToExpiry, iv);
+        return structure.bullish() ? above : 1.0 - above;
+    }
+
+    private static double probabilityAbove(double spot, double breakeven, double timeToExpiry, double iv) {
+        if (spot <= 0.0 || breakeven <= 0.0 || timeToExpiry <= 0.0 || iv <= 0.0) {
+            return 0.0;
+        }
+        double d2 = (Math.log(spot / breakeven)
+                + (RISK_FREE_RATE - 0.5 * iv * iv) * timeToExpiry)
+                / (iv * Math.sqrt(timeToExpiry));
+        return normCdf(d2);
+    }
+
+    private static double normCdf(double x) {
+        if (x < -8.0) return 0.0;
+        if (x > 8.0) return 1.0;
+        double ax = Math.abs(x);
+        double k = 1.0 / (1.0 + 0.2316419 * ax);
+        double poly = ((((1.330274429 * k - 1.821255978) * k + 1.781477937) * k - 0.356563782) * k
+                + 0.319381530) * k;
+        double pAx = 1.0 - Math.exp(-0.5 * ax * ax) / SQRT_2PI * poly;
+        return x >= 0.0 ? pAx : 1.0 - pAx;
+    }
+
+    private enum Kind { DEBIT_SPREAD, CREDIT_SPREAD, LONG_SINGLE }
+
+    /** How a strategy trades: structure kind, which side of the chain, and its profitable direction. */
+    private record Structure(Kind kind, CallPut optionType, boolean bullish) {
+
+        static Structure of(StrategyType strategy) {
+            return switch (strategy) {
+                case BULL_CALL_DEBIT_SPREAD -> new Structure(Kind.DEBIT_SPREAD, CallPut.CALL, true);
+                case BEAR_PUT_DEBIT_SPREAD -> new Structure(Kind.DEBIT_SPREAD, CallPut.PUT, false);
+                case BULL_PUT_CREDIT_SPREAD -> new Structure(Kind.CREDIT_SPREAD, CallPut.PUT, true);
+                case BEAR_CALL_CREDIT_SPREAD -> new Structure(Kind.CREDIT_SPREAD, CallPut.CALL, false);
+                case LONG_CALL -> new Structure(Kind.LONG_SINGLE, CallPut.CALL, true);
+                case LONG_PUT -> new Structure(Kind.LONG_SINGLE, CallPut.PUT, false);
+            };
+        }
+
+        boolean credit() {
+            return kind == Kind.CREDIT_SPREAD;
+        }
+    }
+
+    /** The chosen legs plus the structure economics they imply. */
+    private record Selected(
+            List<RecommendationLeg> legs,
+            double entryDebit,
+            double width,
+            double breakeven,
+            double maxProfit,
+            double maxLoss,
+            double averageIv,
+            double longDeltaTarget,
+            double shortDeltaTarget,
+            double selectedLongDelta,
+            double selectedShortDelta) {
+    }
+
+    private record PricedContract(OptionContract contract, double iv, double delta, double mid,
+                                  double spot, double timeToExpiry) {
+
+        double strike() {
+            return contract.strike();
+        }
+
+        double absDelta() {
+            return Math.abs(delta);
+        }
+    }
+}

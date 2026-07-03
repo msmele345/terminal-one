@@ -56,7 +56,10 @@ class RecommendationEngineTest {
     private TechnicalSignalCalculator technicalSignalCalculator;
 
     @Mock
-    private BullCallDebitSpreadSelector bullCallDebitSpreadSelector;
+    private VolatilityRegimeCalculator volatilityRegimeCalculator;
+
+    @Mock
+    private DirectionalStrategySelector strategySelector;
 
     @Mock
     private RecommendationRepository recommendationRepository;
@@ -105,6 +108,8 @@ class RecommendationEngineTest {
 
         // Arrange — candidate returned by selector
         VolatilityRegimeResult regime = VolatilityRegimeResult.phase4Normal(null);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(regime);
         RecommendationLeg longLeg = new RecommendationLeg(
                 "BUY", "AAPL-100C", CallPut.CALL, 100.0, EXPIRY, 5.0, 5.20, 5.10, 0.55);
         RecommendationLeg shortLeg = new RecommendationLeg(
@@ -120,8 +125,9 @@ class RecommendationEngineTest {
                 "AAPL", StrategyType.BULL_CALL_DEBIT_SPREAD, signal, regime, EXPIRY,
                 List.of(longLeg, shortLeg), 3.50, 0.72, 6.50, 3.50, 1.86, 85.0, rationale);
 
-        when(bullCallDebitSpreadSelector.select(
-                eq("AAPL"), eq(signal), eq(regime), eq(chain), eq(engineConfig)))
+        when(strategySelector.select(
+                eq("AAPL"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
+                eq(chain), eq(engineConfig)))
                 .thenReturn(Optional.of(candidate));
 
         // Arrange — persisted entity

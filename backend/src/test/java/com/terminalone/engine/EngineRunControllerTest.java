@@ -3,6 +3,8 @@ package com.terminalone.engine;
 import com.terminalone.engine.config.EngineConfigSeeder;
 import com.terminalone.marketdata.BlackScholesOptionAnalytics;
 import com.terminalone.marketdata.CallPut;
+import com.terminalone.marketdata.IvHistory;
+import com.terminalone.marketdata.IvHistoryRepository;
 import com.terminalone.marketdata.MarketDataProvider;
 import com.terminalone.marketdata.OptionAnalytics;
 import com.terminalone.marketdata.OptionChain;
@@ -34,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
@@ -69,6 +72,9 @@ class EngineRunControllerTest {
     @Autowired
     private RecommendationRepository recommendations;
 
+    @Autowired
+    private IvHistoryRepository ivHistory;
+
     @MockitoBean
     private MarketDataProvider marketData;
 
@@ -95,6 +101,7 @@ class EngineRunControllerTest {
     @Test
     void bullishNormalUnderlyingProducesAndPersistsABullCallDebitSpread() throws Exception {
         addStock("AAPL", 100, "90.00");
+        seedNormalIvRankHistory("AAPL");
         when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
         when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
 
@@ -120,14 +127,52 @@ class EngineRunControllerTest {
                 .andExpect(jsonPath("$.recommendations[0].maxProfit").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].maxLoss").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].rationale.signals.trendVote").isNumber())
-                .andExpect(jsonPath("$.recommendations[0].rationale.regime.reason").value("PHASE4_SINGLE_CELL_NORMAL"))
+                .andExpect(jsonPath("$.recommendations[0].rationale.regime.reason").value(containsString("IV_RANK")))
                 .andExpect(jsonPath("$.recommendations[0].rationale.selection.longDeltaTarget").value(0.55));
 
         assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
             assertThat(saved.getConfigVersion()).isEqualTo(1);
             assertThat(saved.getStrategy()).isEqualTo(StrategyType.BULL_CALL_DEBIT_SPREAD);
-            assertThat(saved.getRationale()).contains("PHASE4_SINGLE_CELL_NORMAL");
+            assertThat(saved.getRationale()).contains("IV_RANK");
         });
+    }
+
+    @Test
+    void bearishNormalUnderlyingProducesAndPersistsABearPutDebitSpread() throws Exception {
+        addStock("XYZ", 100, "150.00");
+        seedNormalIvRankHistory("XYZ");
+        when(marketData.getDailyBars("XYZ")).thenReturn(bearishHistory("XYZ"));
+        when(marketData.getChain("XYZ")).thenReturn(putChain("XYZ"));
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(1)))
+                .andExpect(jsonPath("$.recommendations[0].symbol").value("XYZ"))
+                .andExpect(jsonPath("$.recommendations[0].strategy").value("BEAR_PUT_DEBIT_SPREAD"))
+                .andExpect(jsonPath("$.recommendations[0].direction").value("BEARISH"))
+                .andExpect(jsonPath("$.recommendations[0].regime").value("NORMAL"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].action").value("BUY"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].callPut").value("PUT"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].strike").value(100.0))
+                .andExpect(jsonPath("$.recommendations[0].legs[1].action").value("SELL"))
+                .andExpect(jsonPath("$.recommendations[0].legs[1].callPut").value("PUT"))
+                .andExpect(jsonPath("$.recommendations[0].legs[1].strike").value(95.0));
+
+        assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
+            assertThat(saved.getConfigVersion()).isEqualTo(1);
+            assertThat(saved.getStrategy()).isEqualTo(StrategyType.BEAR_PUT_DEBIT_SPREAD);
+            assertThat(saved.getDirection()).isEqualTo(Direction.BEARISH);
+        });
+    }
+
+    private void seedNormalIvRankHistory(String symbol) {
+        for (int i = 0; i < 60; i++) {
+            double atmIv = 0.20 + (0.20 * i / 59.0);
+            ivHistory.save(new IvHistory(symbol, TODAY.minusDays(60 - i), atmIv,
+                    100.0, 100.0, EXPIRY, AS_OF));
+        }
     }
 
     private void addStock(String symbol, int qty, String cost) throws Exception {
@@ -150,23 +195,47 @@ class EngineRunControllerTest {
         return new PriceHistory(symbol, AS_OF, true, bars);
     }
 
+    private PriceHistory bearishHistory(String symbol) {
+        List<PriceBar> bars = new ArrayList<>();
+        LocalDate start = TODAY.minusDays(119);
+        for (int i = 0; i < 120; i++) {
+            double close = 155.0 - i * 0.50 - Math.max(0, i - 80) * 0.40;
+            bars.add(new PriceBar(start.plusDays(i), close + 0.35, close + 0.85,
+                    close - 0.65, close, 1_000_000 + i));
+        }
+        return new PriceHistory(symbol, AS_OF, true, bars);
+    }
+
+    /** Puts at and below spot only, so the long leg pins to the ATM 100 strike in every band. */
+    private OptionChain putChain(String symbol) {
+        double spot = 100.0;
+        double sigma = 0.30;
+        return new OptionChain(symbol, spot, AS_OF, true, List.of(
+                pricedContract(symbol, CallPut.PUT, 80.0, spot, sigma),
+                pricedContract(symbol, CallPut.PUT, 85.0, spot, sigma),
+                pricedContract(symbol, CallPut.PUT, 90.0, spot, sigma),
+                pricedContract(symbol, CallPut.PUT, 95.0, spot, sigma),
+                pricedContract(symbol, CallPut.PUT, 100.0, spot, sigma)));
+    }
+
     private OptionChain normalIvChain(String symbol) {
         double spot = 100.0;
         double sigma = 0.30;
         return new OptionChain(symbol, spot, AS_OF, true, List.of(
-                pricedCall(symbol, 90.0, spot, sigma),
-                pricedCall(symbol, 95.0, spot, sigma),
-                pricedCall(symbol, 100.0, spot, sigma),
-                pricedCall(symbol, 105.0, spot, sigma),
-                pricedCall(symbol, 110.0, spot, sigma),
-                pricedCall(symbol, 115.0, spot, sigma)));
+                pricedContract(symbol, CallPut.CALL, 90.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 95.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 100.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 105.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 110.0, spot, sigma),
+                pricedContract(symbol, CallPut.CALL, 115.0, spot, sigma)));
     }
 
-    private OptionContract pricedCall(String symbol, double strike, double spot, double sigma) {
+    private OptionContract pricedContract(String symbol, CallPut type, double strike, double spot,
+            double sigma) {
         double t = ChronoUnit.DAYS.between(TODAY, EXPIRY) / 365.0;
-        double price = analytics.value(new OptionInput(spot, strike, t, 0.04, 0.0, sigma, CallPut.CALL)).price();
+        double price = analytics.value(new OptionInput(spot, strike, t, 0.04, 0.0, sigma, type)).price();
         double bid = Math.max(0.01, price - 0.02);
         double ask = Math.max(bid + 0.02, price + 0.02);
-        return new OptionContract(symbol + "-" + strike, CallPut.CALL, strike, EXPIRY, bid, ask, 1_000);
+        return new OptionContract(symbol + "-" + type + "-" + strike, type, strike, EXPIRY, bid, ask, 1_000);
     }
 }
