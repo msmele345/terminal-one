@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.mockito.Mockito.when;
@@ -188,6 +189,41 @@ class EngineRunControllerTest {
             assertThat(saved.getStrategy()).isEqualTo(StrategyType.BEAR_PUT_DEBIT_SPREAD);
             assertThat(saved.getDirection()).isEqualTo(Direction.BEARISH);
         });
+    }
+
+    /**
+     * Phase 5 AC6 (§8): with three underlyings in the portfolio, the engine
+     * ranks all survivors globally and surfaces them in descending score order,
+     * persisted as separate recommendations. Default topN=3 keeps all three.
+     */
+    @Test
+    void ranksMultipleUnderlyingsGloballyAcrossThePortfolio() throws Exception {
+        addStock("AAPL", 1_000, "150.00");
+        addStock("MSFT", 1_000, "150.00");
+        addStock("TSLA", 1_000, "150.00");
+        seedNormalIvRankHistory("AAPL");
+        seedNormalIvRankHistory("MSFT");
+        seedNormalIvRankHistory("TSLA");
+        // Same chain/sigma for all three so resulting economics are comparable; the
+        // distinctive lever is the signal history, which drives raw EV via the
+        // POP/modeling baked into the selector. All three are bullish-normal so
+        // each yields a BULL_CALL_DEBIT_SPREAD surviving the guardrails.
+        when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
+        when(marketData.getDailyBars("MSFT")).thenReturn(bullishHistory("MSFT"));
+        when(marketData.getDailyBars("TSLA")).thenReturn(bullishHistory("TSLA"));
+        when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
+        when(marketData.getChain("MSFT")).thenReturn(normalIvChain("MSFT"));
+        when(marketData.getChain("TSLA")).thenReturn(normalIvChain("TSLA"));
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(3)))
+                .andExpect(jsonPath("$.recommendations[*].symbol",
+                        containsInAnyOrder("AAPL", "MSFT", "TSLA")));
+
+        assertThat(recommendations.findAll()).hasSize(3);
     }
 
     private void seedNormalIvRankHistory(String symbol) {

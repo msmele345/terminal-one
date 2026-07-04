@@ -63,19 +63,28 @@ public class RecommendationEngine {
     @Transactional
     public EngineRunResponse run(EngineRunRequest request) {
         ActiveEngineConfig active = configProvider.getActive();
-        List<RecommendationResponse> emitted = new ArrayList<>();
+        EngineConfig config = active.config();
         double portfolioValue = portfolioValueAtCost();
+
+        // Phase 5 AC6 (§8): collect every surviving sized candidate across the
+        // portfolio, then rank them globally — top-N is decided across all
+        // underlyings, not the first N symbols encountered.
+        List<RecommendationCandidate> survivors = new ArrayList<>();
         for (String symbol : symbolsFor(request)) {
-            runSymbol(symbol, active, portfolioValue).ifPresent(emitted::add);
-            if (emitted.size() >= active.config().ranking().topN()) {
-                break;
-            }
+            sizeCandidate(symbol, active, portfolioValue).ifPresent(survivors::add);
+        }
+        List<RecommendationCandidate> ranked = CandidateRanker.rank(survivors, config.ranking());
+
+        List<RecommendationResponse> emitted = new ArrayList<>();
+        for (RecommendationCandidate candidate : ranked) {
+            Recommendation saved = recommendations.save(toEntity(candidate, active.version()));
+            emitted.add(RecommendationResponse.from(saved, candidate));
         }
         return new EngineRunResponse(emitted);
     }
 
-    private java.util.Optional<RecommendationResponse> runSymbol(String symbol, ActiveEngineConfig active,
-                                                                 double portfolioValue) {
+    private java.util.Optional<RecommendationCandidate> sizeCandidate(String symbol, ActiveEngineConfig active,
+                                                                       double portfolioValue) {
         EngineConfig config = active.config();
         PriceHistory history = safe(() -> marketData.getDailyBars(symbol));
         DirectionSignal signal = signals.calculate(history, config.signal());
@@ -108,10 +117,8 @@ public class RecommendationEngine {
         RecommendationRationale.Sizing rationaleSizing = new RecommendationRationale.Sizing(
                 sizing.contracts(), unsized.maxLoss(), portfolioValue,
                 config.sizing().perTradeRiskPct(), sizing.riskAmount());
-        RecommendationCandidate sized = unsized.withSizing(
-                sizing.contracts(), unsized.rationale().withSizing(rationaleSizing));
-        Recommendation saved = recommendations.save(toEntity(sized, active.version()));
-        return java.util.Optional.of(RecommendationResponse.from(saved, sized));
+        return java.util.Optional.of(unsized.withSizing(
+                sizing.contracts(), unsized.rationale().withSizing(rationaleSizing)));
     }
 
     /**

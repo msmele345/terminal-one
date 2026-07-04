@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.math.BigDecimal;
@@ -234,5 +235,78 @@ class RecommendationEngineTest {
         assertThat(response.recommendations()).isEmpty();
         verifyNoInteractions(recommendationRepository);
         verifyNoInteractions(objectMapper);
+    }
+
+    @Test
+    void ranksMultipleUnderlyingsGloballyByScoreAndSurfacesOnlyTopN() throws Exception {
+        // Three underlyings, three survivors with distinct §8 scores; default topN=3 keeps all,
+        // asserted in descending score order regardless of iteration order.
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(clock.instant()).thenReturn(AS_OF);
+
+        // Big enough book that none abstain on RISK_TOO_LARGE; three underlyings are
+        // distinct portfolio symbols so symbolsFor iterates all three.
+        when(positionSource.listStocks()).thenReturn(List.of(
+                new StockPosition("AAPL", new BigDecimal("100"), new BigDecimal("500.00"), TODAY),
+                new StockPosition("MSFT", new BigDecimal("100"), new BigDecimal("500.00"), TODAY),
+                new StockPosition("TSLA", new BigDecimal("100"), new BigDecimal("500.00"), TODAY)));
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        // Symbols iterate in TreeSet order: AAPL, MSFT, TSLA. Assign scores 50 / 100 / 75
+        // so the ranking reorder should be MSFT (100) → TSLA (75) → AAPL (50).
+        String[] symbols = {"AAPL", "MSFT", "TSLA"};
+        double[] scores = {50.0, 100.0, 75.0};
+        for (int i = 0; i < symbols.length; i++) {
+            String symbol = symbols[i];
+            PriceHistory history = new PriceHistory(symbol, AS_OF, true, List.of(
+                    new PriceBar(TODAY.minusDays(1), 99.0, 101.0, 98.0, 100.0, 1_000_000),
+                    new PriceBar(TODAY, 100.0, 102.0, 99.0, 101.0, 1_000_000)));
+            when(marketDataProvider.getDailyBars(symbol)).thenReturn(history);
+
+            DirectionSignal signal = new DirectionSignal(Direction.BULLISH, 60,
+                    0.75, 0.8, 0.7, 0.6, 102.0, 100.0, 0.5, 55.0);
+            when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(signal);
+
+            OptionChain chain = new OptionChain(symbol, 100.0, AS_OF, true, List.of());
+            when(marketDataProvider.getChain(symbol)).thenReturn(chain);
+
+            VolatilityRegimeResult regime = VolatilityRegimeResult.phase4Normal(null);
+            when(volatilityRegimeCalculator.calculate(symbol, chain, history, engineConfig.regime()))
+                    .thenReturn(regime);
+
+            RecommendationLeg longLeg = new RecommendationLeg(
+                    "BUY", symbol + "-100C", CallPut.CALL, 100.0, EXPIRY, 5.0, 5.20, 5.10, 0.55);
+            RecommendationLeg shortLeg = new RecommendationLeg(
+                    "SELL", symbol + "-110C", CallPut.CALL, 110.0, EXPIRY, 1.50, 1.70, 1.60, 0.30);
+            // rawEV is positive for all three; score order is what differentiates them.
+            RecommendationRationale rationale = new RecommendationRationale(
+                    new RecommendationRationale.Signals(0.8, 0.7, 0.6, 0.75, 60, 102.0, 100.0, 0.5, 55.0),
+                    new RecommendationRationale.Regime(VolatilityRegime.NORMAL, "PHASE4_SINGLE_CELL_NORMAL", null),
+                    new RecommendationRationale.Selection("standard", 51, 0.55, 0.30, 0.55, 0.30),
+                    new RecommendationRationale.Pricing(10.0, 3.50, 103.50, 0.72, 6.50, 3.50, 1.86, 50.0),
+                    null);
+            RecommendationCandidate candidate = new RecommendationCandidate(
+                    symbol, StrategyType.BULL_CALL_DEBIT_SPREAD, signal, regime, EXPIRY,
+                    List.of(longLeg, shortLeg), 3.50, 0.72, 6.50, 3.50, 1.86, scores[i], 0, rationale);
+            when(strategySelector.select(
+                    eq(symbol), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
+                    eq(chain), eq(engineConfig)))
+                    .thenReturn(Optional.of(candidate));
+        }
+
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+        when(recommendationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Act — null request means "run over all portfolio underlyings."
+        EngineRunResponse response = recommendationEngine.run(new EngineRunRequest(null));
+
+        // Assert — globally ranked by score, not iteration order.
+        assertThat(response.recommendations()).hasSize(3);
+        assertThat(response.recommendations()).extracting(RecommendationResponse::symbol)
+                .containsExactly("MSFT", "TSLA", "AAPL");
+        assertThat(response.recommendations()).extracting(RecommendationResponse::score)
+                .containsExactly(100.0, 75.0, 50.0);
+        verify(recommendationRepository, org.mockito.Mockito.times(3)).save(any());
+        verifyNoMoreInteractions(recommendationRepository);
     }
 }
