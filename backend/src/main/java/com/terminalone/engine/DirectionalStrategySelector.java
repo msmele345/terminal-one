@@ -7,11 +7,14 @@ import com.terminalone.marketdata.OptionChain;
 import com.terminalone.marketdata.OptionContract;
 import com.terminalone.marketdata.OptionInput;
 import com.terminalone.marketdata.OptionValuation;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -28,14 +31,14 @@ import java.util.function.Predicate;
  * positive for debit/long structures, negative (a credit received) for credit
  * spreads.</p>
  *
- * <p>Phase 5 AC1 scope: structure selection. The full §6 guardrails with logged
- * rejection reasons, §7 contract sizing, and the §8 regime-fit ranking land
- * with the later Phase 5 ACs (only the structural-validity, open-interest, and
- * debit reward:risk checks carried over from Phase 4 apply here).</p>
+ * <p>Phase 5 AC4 applies the §6 candidate filters for liquidity, min-credit,
+ * POP, reward:risk, and DTE with logged rejection reasons. §7 contract sizing
+ * and the §8 regime-fit ranking land with later Phase 5 ACs.</p>
  */
 @Component
 class DirectionalStrategySelector {
 
+    private static final Logger logger = LoggerFactory.getLogger(DirectionalStrategySelector.class);
     private static final double RISK_FREE_RATE = 0.04;
     private static final double DAYS_PER_YEAR = 365.0;
     private static final double SQRT_2PI = Math.sqrt(2.0 * Math.PI);
@@ -53,8 +56,17 @@ class DirectionalStrategySelector {
                                              VolatilityRegimeResult regime,
                                              OptionChain chain,
                                              EngineConfig config) {
+        return selectWithRejections(symbol, strategy, signal, regime, chain, config).candidate();
+    }
+
+    CandidateSelection selectWithRejections(String symbol, StrategyType strategy,
+                                            DirectionSignal signal,
+                                            VolatilityRegimeResult regime,
+                                            OptionChain chain,
+                                            EngineConfig config) {
+        List<GuardrailRejection> rejections = new ArrayList<>();
         if (chain == null || chain.underlyingPrice() <= 0.0 || chain.contracts().isEmpty()) {
-            return Optional.empty();
+            return rejected(rejections);
         }
         Structure structure = Structure.of(strategy);
         LocalDate today = LocalDate.now(clock);
@@ -64,7 +76,9 @@ class DirectionalStrategySelector {
                 ? config.expiry().creditDteWindow() : config.expiry().debitDteWindow();
         Optional<LocalDate> expiry = selectExpiry(chain, today, dteTarget, dteWindow);
         if (expiry.isEmpty()) {
-            return Optional.empty();
+            rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.NO_VALID_EXPIRY,
+                    "No expiration falls inside DTE window [%d,%d]".formatted(dteWindow.min(), dteWindow.max())));
+            return rejected(rejections);
         }
         int dte = (int) ChronoUnit.DAYS.between(today, expiry.get());
         double timeToExpiry = dte / DAYS_PER_YEAR;
@@ -73,8 +87,8 @@ class DirectionalStrategySelector {
         List<PricedContract> contracts = chain.contracts().stream()
                 .filter(c -> c.callPut() == structure.optionType())
                 .filter(c -> c.expiration().equals(expiry.get()))
-                .filter(c -> c.openInterest() >= config.filters().minOpenInterest())
-                .filter(c -> c.bid() > 0.0 && c.ask() > c.bid())
+                .filter(c -> passesOpenInterest(symbol, strategy, c, config, rejections))
+                .filter(c -> passesBidAskLiquidity(symbol, strategy, c, config, rejections))
                 .map(c -> price(c, chain.underlyingPrice(), timeToExpiry))
                 .flatMap(Optional::stream)
                 .toList();
@@ -85,7 +99,7 @@ class DirectionalStrategySelector {
             case LONG_SINGLE -> longSingleLeg(structure, contracts, config);
         };
         if (selected == null) {
-            return Optional.empty();
+            return rejected(rejections);
         }
 
         double pop = probabilityOfFinishing(structure, chain.underlyingPrice(), selected.breakeven(),
@@ -95,6 +109,26 @@ class DirectionalStrategySelector {
         // Regime-fit stays at the neutral factor until the §8 ranking objective lands (Phase 5 ranking AC).
         double score = rawEv * config.ranking().regimeFitNeutral() * convFactor;
         double riskReward = selected.maxProfit() / selected.maxLoss();
+        if (structure.credit()) {
+            double credit = -selected.entryDebit();
+            double minimum = selected.width() * config.filters().minCreditToWidthRatio();
+            if (credit < minimum) {
+                rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.MIN_CREDIT,
+                        "credit %.4f < %.4f required for %.4f width".formatted(
+                                credit, minimum, selected.width())));
+                return rejected(rejections);
+            }
+            if (pop < config.filters().minPopCredit()) {
+                rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.POP_BELOW_FLOOR,
+                        "POP %.4f < %.4f".formatted(pop, config.filters().minPopCredit())));
+                return rejected(rejections);
+            }
+        } else if (riskReward < config.filters().minRewardRiskDebit()) {
+            rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.REWARD_RISK_BELOW_FLOOR,
+                    "reward:risk %.4f < %.4f".formatted(riskReward,
+                            config.filters().minRewardRiskDebit())));
+            return rejected(rejections);
+        }
 
         RecommendationRationale rationale = new RecommendationRationale(
                 signal.toRationale(),
@@ -106,9 +140,50 @@ class DirectionalStrategySelector {
                         selected.breakeven(), pop, selected.maxProfit(), selected.maxLoss(),
                         riskReward, rawEv));
 
-        return Optional.of(new RecommendationCandidate(symbol, strategy, signal, regime, expiry.get(),
+        return new CandidateSelection(Optional.of(new RecommendationCandidate(symbol, strategy, signal, regime, expiry.get(),
                 selected.legs(), selected.entryDebit(), pop, selected.maxProfit(), selected.maxLoss(),
-                riskReward, score, rationale));
+                riskReward, score, rationale)), List.copyOf(rejections));
+    }
+
+    private static CandidateSelection rejected(List<GuardrailRejection> rejections) {
+        logRejections(rejections);
+        return new CandidateSelection(Optional.empty(), List.copyOf(rejections));
+    }
+
+    private static void logRejections(List<GuardrailRejection> rejections) {
+        for (GuardrailRejection rejection : rejections) {
+            logger.info("Rejected {} {} candidate: {} ({})",
+                    rejection.symbol(), rejection.strategy(), rejection.reason(), rejection.detail());
+        }
+    }
+
+    private static boolean passesOpenInterest(String symbol, StrategyType strategy, OptionContract contract,
+                                              EngineConfig config, List<GuardrailRejection> rejections) {
+        if (contract.openInterest() >= config.filters().minOpenInterest()) {
+            return true;
+        }
+        rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.LOW_OPEN_INTEREST,
+                "%s OI %d < %d".formatted(contract.optionSymbol(), contract.openInterest(),
+                        config.filters().minOpenInterest())));
+        return false;
+    }
+
+    private static boolean passesBidAskLiquidity(String symbol, StrategyType strategy, OptionContract contract,
+                                                 EngineConfig config, List<GuardrailRejection> rejections) {
+        double mid = contract.mid();
+        double width = contract.ask() - contract.bid();
+        boolean liquid = contract.bid() > 0.0
+                && contract.ask() > contract.bid()
+                && mid > 0.0
+                && (width <= config.filters().maxBidAskAbsolute()
+                        || width / mid <= config.filters().maxBidAskPctOfMid());
+        if (liquid) {
+            return true;
+        }
+        rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.ILLIQUID_BID_ASK,
+                "%s bid/ask %.4f/%.4f exceeds spread limits".formatted(
+                        contract.optionSymbol(), contract.bid(), contract.ask())));
+        return false;
     }
 
     /** §4.2 — buy the long leg by delta, cap with a further-OTM short leg by delta. */
@@ -134,9 +209,6 @@ class DirectionalStrategySelector {
         }
         double maxLoss = debit * 100.0;
         double maxProfit = (width - debit) * 100.0;
-        if (maxProfit / maxLoss < config.filters().minRewardRiskDebit()) {
-            return null;
-        }
         double breakeven = structure.optionType() == CallPut.CALL
                 ? longLeg.strike() + debit
                 : longLeg.strike() - debit;
@@ -204,7 +276,7 @@ class DirectionalStrategySelector {
                 * Math.exp((call ? 1.0 : -1.0) * chosen.iv() * Math.sqrt(chosen.timeToExpiry()));
         double intrinsicAtMove = call ? oneSigmaMove - chosen.strike() : chosen.strike() - oneSigmaMove;
         double modeledProfit = (intrinsicAtMove - premium) * 100.0;
-        if (modeledProfit <= 0.0 || modeledProfit / maxLoss < config.filters().minRewardRiskDebit()) {
+        if (modeledProfit <= 0.0) {
             return null;
         }
         return new Selected(

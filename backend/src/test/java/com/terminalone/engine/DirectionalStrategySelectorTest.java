@@ -15,6 +15,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import com.terminalone.engine.config.EngineConfig;
@@ -90,8 +91,9 @@ class DirectionalStrategySelectorTest {
                 .select(direction, regime, conviction, config.conviction()).orElseThrow();
         assertThat(strategy).isEqualTo(expectedStrategy);
 
+        EngineConfig selectorConfig = structureConfigFor(expectedStrategy);
         RecommendationCandidate candidate = selector.select("AAPL", strategy,
-                signal(direction, conviction), regimeResult(regime), fullChain(), config).orElseThrow();
+                signal(direction, conviction), regimeResult(regime), fullChain(), selectorConfig).orElseThrow();
 
         assertThat(candidate.symbol()).isEqualTo("AAPL");
         assertThat(candidate.strategy()).isEqualTo(expectedStrategy);
@@ -133,7 +135,7 @@ class DirectionalStrategySelectorTest {
     void creditSpreadEconomicsFollowTheShortStrikeAndWidth() {
         RecommendationCandidate candidate = selector.select("AAPL",
                 StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, 65),
-                regimeResult(VolatilityRegime.HIGH), fullChain(), config).orElseThrow();
+                regimeResult(VolatilityRegime.HIGH), fullChain(), creditStructureConfig()).orElseThrow();
 
         double credit = -candidate.entryDebit();
         double width = 5.0;
@@ -171,6 +173,123 @@ class DirectionalStrategySelectorTest {
         assertThat(candidate.rationale().selection().longDeltaTarget()).isCloseTo(0.65, within(1e-9));
         assertThat(candidate.rationale().selection().shortDeltaTarget()).isEqualTo(0.0);
         assertThat(candidate.rationale().selection().selectedShortDelta()).isEqualTo(0.0);
+    }
+
+    // ---- Phase 5 AC3: conviction bands shift strike deltas per §4 ----
+
+    /**
+     * §4.2 — across all three conviction bands, a debit vertical targets the
+     * long/short-leg deltas from the config's per-band ladder (safer at low
+     * conviction, more aggressive at high).
+     */
+    @ParameterizedTest(name = "conviction {0} -> {1} band, long {2}Δ / short {3}Δ")
+    @CsvSource({
+            "45, standard,  0.50, 0.25",
+            "65, confident, 0.55, 0.28",
+            "85, high,      0.62, 0.30",
+    })
+    void debitConvictionBandsShiftDeltaTargetsPerSection4(int conviction, String band,
+            double longTarget, double shortTarget) {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, conviction),
+                regimeResult(VolatilityRegime.NORMAL), fullChain(), config).orElseThrow();
+
+        RecommendationRationale.Selection sel = candidate.rationale().selection();
+        assertThat(sel.convictionBand()).isEqualTo(band);
+        assertThat(sel.longDeltaTarget()).isCloseTo(longTarget, within(1e-9));
+        assertThat(sel.shortDeltaTarget()).isCloseTo(shortTarget, within(1e-9));
+    }
+
+    /**
+     * §4.1 — across all three conviction bands, a credit vertical targets the
+     * short-leg delta from the config's per-band ladder; the protection leg is
+     * width-driven, so it carries no delta target.
+     */
+    @ParameterizedTest(name = "conviction {0} -> {1} band, short {2}Δ")
+    @CsvSource({
+            "45, standard,  0.20",
+            "65, confident, 0.30",
+            "85, high,      0.38",
+    })
+    void creditConvictionBandsShiftShortDeltaTargetPerSection4(int conviction, String band,
+            double shortTarget) {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, conviction),
+                regimeResult(VolatilityRegime.HIGH), fullChain(), creditStructureConfig()).orElseThrow();
+
+        RecommendationRationale.Selection sel = candidate.rationale().selection();
+        assertThat(sel.convictionBand()).isEqualTo(band);
+        assertThat(sel.shortDeltaTarget()).isCloseTo(shortTarget, within(1e-9));
+        assertThat(sel.longDeltaTarget()).isEqualTo(0.0);
+    }
+
+    /**
+     * The band delta targets have teeth: on a fine ($1-increment) chain, higher
+     * conviction sells closer to the money — a strictly higher short-put strike
+     * and larger |delta| as the band climbs standard → confident → high.
+     */
+    @Test
+    void higherConvictionSelectsMoreAggressiveStrikes() {
+        OptionChain fine = fineGrainedPutChain();
+        RecommendationCandidate standard = creditAt(45, fine);
+        RecommendationCandidate confident = creditAt(65, fine);
+        RecommendationCandidate high = creditAt(85, fine);
+
+        assertThat(shortStrike(standard))
+                .isLessThan(shortStrike(confident));
+        assertThat(shortStrike(confident))
+                .isLessThan(shortStrike(high));
+
+        assertThat(standard.rationale().selection().selectedShortDelta())
+                .isLessThan(confident.rationale().selection().selectedShortDelta());
+        assertThat(confident.rationale().selection().selectedShortDelta())
+                .isLessThan(high.rationale().selection().selectedShortDelta());
+    }
+
+    /**
+     * The §2/§4.3 unlock: the long single leg surfaces only at conviction ≥ 80
+     * <em>and</em> LOW IV. One below the threshold, or outside LOW IV, resolves
+     * to the two-leg vertical instead. Composed matrix → selector so the leg
+     * count reflects the actual built structure.
+     */
+    @Test
+    void longSingleLegUnlocksOnlyAtHighConvictionAndLowIv() {
+        // one below the unlock, LOW IV -> two-leg debit vertical
+        StrategyType belowUnlock = DirectionalStrategyMatrix
+                .select(Direction.BULLISH, VolatilityRegime.LOW, 79, config.conviction()).orElseThrow();
+        assertThat(belowUnlock).isEqualTo(StrategyType.BULL_CALL_DEBIT_SPREAD);
+        assertThat(selector.select("AAPL", belowUnlock, signal(Direction.BULLISH, 79),
+                regimeResult(VolatilityRegime.LOW), fullChain(), config).orElseThrow().legs())
+                .hasSize(2);
+
+        // at the unlock, LOW IV -> single-leg long
+        StrategyType unlocked = DirectionalStrategyMatrix
+                .select(Direction.BULLISH, VolatilityRegime.LOW, 80, config.conviction()).orElseThrow();
+        assertThat(unlocked).isEqualTo(StrategyType.LONG_CALL);
+        assertThat(selector.select("AAPL", unlocked, signal(Direction.BULLISH, 80),
+                regimeResult(VolatilityRegime.LOW), fullChain(), config).orElseThrow().legs())
+                .hasSize(1);
+
+        // high conviction alone never unlocks a long outside LOW IV
+        assertThat(DirectionalStrategyMatrix.select(Direction.BULLISH, VolatilityRegime.NORMAL, 100,
+                config.conviction())).contains(StrategyType.BULL_CALL_DEBIT_SPREAD);
+        assertThat(DirectionalStrategyMatrix.select(Direction.BULLISH, VolatilityRegime.HIGH, 100,
+                config.conviction())).contains(StrategyType.BULL_PUT_CREDIT_SPREAD);
+    }
+
+    private RecommendationCandidate creditAt(int conviction, OptionChain chain) {
+        return selector.select("AAPL", StrategyType.BULL_PUT_CREDIT_SPREAD,
+                signal(Direction.BULLISH, conviction), regimeResult(VolatilityRegime.HIGH), chain,
+                creditStructureConfig())
+                .orElseThrow();
+    }
+
+    private static double shortStrike(RecommendationCandidate candidate) {
+        return candidate.legs().stream()
+                .filter(l -> "SELL".equals(l.action()))
+                .map(RecommendationLeg::strike)
+                .findFirst()
+                .orElseThrow();
     }
 
     // ---- ported Phase 4 cases, on the generalized selector ----
@@ -226,16 +345,21 @@ class DirectionalStrategySelectorTest {
     }
 
     @Test
-    void returnsEmptyWhenNoExpiryFallsInsideTheDebitWindow() {
+    void rejectsWhenNoExpiryFallsInsideTheDebitWindowWithAReason() {
         OptionChain chain = new OptionChain("AAPL", SPOT, AS_OF, true, List.of(
                 priced(CallPut.CALL, 100.0, TODAY.plusDays(20), 1_000),
                 priced(CallPut.CALL, 110.0, TODAY.plusDays(20), 1_000),
                 priced(CallPut.CALL, 100.0, TODAY.plusDays(90), 1_000),
                 priced(CallPut.CALL, 110.0, TODAY.plusDays(90), 1_000)));
 
-        assertThat(selector.select("AAPL", StrategyType.BULL_CALL_DEBIT_SPREAD,
-                signal(Direction.BULLISH, 65), regimeResult(VolatilityRegime.NORMAL), chain, config))
-                .isEmpty();
+        CandidateSelection selection = selector.selectWithRejections("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.NORMAL), chain, config);
+
+        assertThat(selection.candidate()).isEmpty();
+        assertThat(selection.rejections())
+                .extracting(GuardrailRejection::reason)
+                .contains(GuardrailReason.NO_VALID_EXPIRY);
     }
 
     @Test
@@ -247,20 +371,111 @@ class DirectionalStrategySelectorTest {
                 priced(CallPut.PUT, 95.0, DEBIT_EXPIRY, 1_000),
                 priced(CallPut.PUT, 100.0, DEBIT_EXPIRY, 1_000)));
 
-        assertThat(selector.select("AAPL", StrategyType.BULL_PUT_CREDIT_SPREAD,
-                signal(Direction.BULLISH, 65), regimeResult(VolatilityRegime.HIGH), chain, config))
-                .isEmpty();
+        CandidateSelection selection = selector.selectWithRejections("AAPL",
+                StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.HIGH), chain, config);
+
+        assertThat(selection.candidate()).isEmpty();
+        assertThat(selection.rejections())
+                .extracting(GuardrailRejection::reason)
+                .contains(GuardrailReason.NO_VALID_EXPIRY);
     }
 
     @Test
-    void returnsEmptyWhenOpenInterestFiltersOutARequiredLeg() {
+    void rejectsLowOpenInterestWithAReason() {
         OptionChain chain = new OptionChain("AAPL", SPOT, AS_OF, true, List.of(
                 priced(CallPut.CALL, 100.0, DEBIT_EXPIRY, 1_000),
                 priced(CallPut.CALL, 110.0, DEBIT_EXPIRY, 99)));
 
-        assertThat(selector.select("AAPL", StrategyType.BULL_CALL_DEBIT_SPREAD,
-                signal(Direction.BULLISH, 65), regimeResult(VolatilityRegime.NORMAL), chain, config))
-                .isEmpty();
+        CandidateSelection selection = selector.selectWithRejections("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.NORMAL), chain, config);
+
+        assertThat(selection.candidate()).isEmpty();
+        assertThat(selection.rejections())
+                .extracting(GuardrailRejection::reason)
+                .contains(GuardrailReason.LOW_OPEN_INTEREST);
+    }
+
+    @Test
+    void rejectsIlliquidBidAskSpreadsWithAReason() {
+        OptionContract liquidLong = priced(CallPut.CALL, 100.0, DEBIT_EXPIRY, 1_000);
+        OptionChain chain = new OptionChain("AAPL", SPOT, AS_OF, true, List.of(
+                liquidLong,
+                new OptionContract("AAPL-wide-call", CallPut.CALL, 110.0, DEBIT_EXPIRY,
+                        0.50, 0.80, 1_000)));
+
+        CandidateSelection selection = selector.selectWithRejections("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.NORMAL), chain, config);
+
+        assertThat(selection.candidate()).isEmpty();
+        assertThat(selection.rejections())
+                .extracting(GuardrailRejection::reason)
+                .contains(GuardrailReason.ILLIQUID_BID_ASK);
+    }
+
+    @Test
+    void rejectsCreditSpreadsBelowTheMinimumCreditWidthRatio() {
+        EngineConfig strictCreditConfig = withFilters(new EngineConfig.Filters(
+                config.filters().maxBidAskPctOfMid(),
+                config.filters().maxBidAskAbsolute(),
+                config.filters().minOpenInterest(),
+                0.90,
+                config.filters().minPopCredit(),
+                config.filters().minRewardRiskDebit(),
+                config.filters().avoidEarnings()));
+
+        CandidateSelection selection = selector.selectWithRejections("AAPL",
+                StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.HIGH), fullChain(), strictCreditConfig);
+
+        assertThat(selection.candidate()).isEmpty();
+        assertThat(selection.rejections())
+                .extracting(GuardrailRejection::reason)
+                .contains(GuardrailReason.MIN_CREDIT);
+    }
+
+    @Test
+    void rejectsCreditSpreadsBelowThePopFloor() {
+        EngineConfig strictPopConfig = withFilters(new EngineConfig.Filters(
+                config.filters().maxBidAskPctOfMid(),
+                config.filters().maxBidAskAbsolute(),
+                config.filters().minOpenInterest(),
+                0.10,
+                0.95,
+                config.filters().minRewardRiskDebit(),
+                config.filters().avoidEarnings()));
+
+        CandidateSelection selection = selector.selectWithRejections("AAPL",
+                StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.HIGH), fullChain(), strictPopConfig);
+
+        assertThat(selection.candidate()).isEmpty();
+        assertThat(selection.rejections())
+                .extracting(GuardrailRejection::reason)
+                .contains(GuardrailReason.POP_BELOW_FLOOR);
+    }
+
+    @Test
+    void rejectsDebitSpreadsBelowTheRewardRiskFloorWithAReason() {
+        EngineConfig strictRewardRiskConfig = withFilters(new EngineConfig.Filters(
+                config.filters().maxBidAskPctOfMid(),
+                config.filters().maxBidAskAbsolute(),
+                config.filters().minOpenInterest(),
+                config.filters().minCreditToWidthRatio(),
+                config.filters().minPopCredit(),
+                5.0,
+                config.filters().avoidEarnings()));
+
+        CandidateSelection selection = selector.selectWithRejections("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.NORMAL), fullChain(), strictRewardRiskConfig);
+
+        assertThat(selection.candidate()).isEmpty();
+        assertThat(selection.rejections())
+                .extracting(GuardrailRejection::reason)
+                .contains(GuardrailReason.REWARD_RISK_BELOW_FLOOR);
     }
 
     @Test
@@ -300,6 +515,16 @@ class DirectionalStrategySelectorTest {
         return new OptionChain("AAPL", SPOT, AS_OF, true, contracts);
     }
 
+    /** Puts only, strikes 80–105 in $1 steps at the credit-window expiry — fine
+     * enough that the per-band short-delta targets resolve to distinct strikes. */
+    private OptionChain fineGrainedPutChain() {
+        List<OptionContract> contracts = new ArrayList<>();
+        for (double strike = 80.0; strike <= 105.0; strike += 1.0) {
+            contracts.add(priced(CallPut.PUT, strike, CREDIT_EXPIRY, 1_000));
+        }
+        return new OptionChain("AAPL", SPOT, AS_OF, true, contracts);
+    }
+
     private OptionContract priced(CallPut type, double strike, LocalDate expiry, int openInterest) {
         double t = ChronoUnit.DAYS.between(TODAY, expiry) / 365.0;
         double price = analytics.value(new OptionInput(SPOT, strike, t, 0.04, 0.0, SIGMA, type)).price();
@@ -307,5 +532,28 @@ class DirectionalStrategySelectorTest {
         double ask = Math.max(bid + 0.02, price + 0.02);
         return new OptionContract("AAPL-" + type + "-" + strike + "-" + expiry, type, strike, expiry,
                 bid, ask, openInterest);
+    }
+
+    private EngineConfig withFilters(EngineConfig.Filters filters) {
+        return new EngineConfig(config.signal(), config.regime(), config.conviction(), config.strikes(),
+                config.expiry(), filters, config.sizing(), config.ranking());
+    }
+
+    private EngineConfig structureConfigFor(StrategyType strategy) {
+        return strategy == StrategyType.BULL_PUT_CREDIT_SPREAD
+                || strategy == StrategyType.BEAR_CALL_CREDIT_SPREAD
+                ? creditStructureConfig()
+                : config;
+    }
+
+    private EngineConfig creditStructureConfig() {
+        return withFilters(new EngineConfig.Filters(
+                config.filters().maxBidAskPctOfMid(),
+                config.filters().maxBidAskAbsolute(),
+                config.filters().minOpenInterest(),
+                0.10,
+                0.0,
+                config.filters().minRewardRiskDebit(),
+                config.filters().avoidEarnings()));
     }
 }
