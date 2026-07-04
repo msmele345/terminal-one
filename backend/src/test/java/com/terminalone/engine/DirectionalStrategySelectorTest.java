@@ -478,6 +478,171 @@ class DirectionalStrategySelectorTest {
                 .contains(GuardrailReason.REWARD_RISK_BELOW_FLOOR);
     }
 
+    /**
+     * Phase 5 AC6 (§8): the candidate score folds in the per-cell regimeFinable
+     * factor — match (1.15) for credit↔HIGH / debit-long↔LOW, neutral (1.00) for
+     * NORMAL, counter (0.85) otherwise — multiplied with the raw EV and the
+     * conviction factor. Stamped into {@code candidate.score()} by the selector.
+     */
+    @Test
+    void creditSpreadAtHighIvAppliesMatchFactor() {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.HIGH), fullChain(), creditStructureConfig()).orElseThrow();
+
+        double rawEv = candidate.rationale().pricing().rawExpectedValue();
+        double convFactor = 0.5 + 0.5 * (65.0 / 100.0);
+        assertThat(candidate.score()).isCloseTo(rawEv * 1.15 * convFactor, within(1e-6));
+    }
+
+    @Test
+    void longSingleAtLowIvAppliesMatchFactor() {
+        RecommendationCandidate candidate = selector.select("AAPL", StrategyType.LONG_CALL,
+                signal(Direction.BULLISH, 85), regimeResult(VolatilityRegime.LOW), fullChain(), config)
+                .orElseThrow();
+
+        double rawEv = candidate.rationale().pricing().rawExpectedValue();
+        double convFactor = 0.5 + 0.5 * (85.0 / 100.0);
+        assertThat(candidate.score()).isCloseTo(rawEv * 1.15 * convFactor, within(1e-6));
+    }
+
+    @Test
+    void debitSpreadAtNormalIvAppliesNeutralFactor() {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.NORMAL), fullChain(), config).orElseThrow();
+
+        double rawEv = candidate.rationale().pricing().rawExpectedValue();
+        double convFactor = 0.5 + 0.5 * (65.0 / 100.0);
+        assertThat(candidate.score()).isCloseTo(rawEv * 1.00 * convFactor, within(1e-6));
+    }
+
+    @Test
+    void debitSpreadAtHighIvAppliesCounterFactor() {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.HIGH), fullChain(), config).orElseThrow();
+
+        double rawEv = candidate.rationale().pricing().rawExpectedValue();
+        double convFactor = 0.5 + 0.5 * (65.0 / 100.0);
+        assertThat(candidate.score()).isCloseTo(rawEv * 0.85 * convFactor, within(1e-6));
+    }
+
+    @Test
+    void creditSpreadAtLowIvAppliesCounterFactor() {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.LOW), fullChain(), creditStructureConfig()).orElseThrow();
+
+        double rawEv = candidate.rationale().pricing().rawExpectedValue();
+        double convFactor = 0.5 + 0.5 * (65.0 / 100.0);
+        assertThat(candidate.score()).isCloseTo(rawEv * 0.85 * convFactor, within(1e-6));
+    }
+
+    // ---- Phase 5 AC7: strategy-matrix §10 worked examples ----
+    //
+    // Examples A and D are the two fully-directional cases this phase covers
+    // end-to-end (matrix → selector → §8 score, plus §7 sizing for A). The doc's
+    // dollar figures come from real AAPL/NVDA chains; on the synthetic σ=0.30
+    // chain those exact values won't reproduce, so each test pins the
+    // *deterministic* claims the engine owns — the mapping, the delta targets,
+    // the credit/debit economics identities, the regime-fit factor, and the
+    // sizing rule — not the illustrative prices. Examples B (WEAK_SIGNAL abstain)
+    // and C (Covered Call income overlay) depend on Phase 6 machinery and are
+    // encoded when that lands.
+
+    /**
+     * §10 Example A — AAPL classic high-IV bullish credit spread. A BULLISH
+     * signal in the Standard band (conviction 56) under HIGH IV maps to a Bull
+     * Put Credit Spread; Standard band targets the 0.20Δ short put (§4.1); the
+     * structure takes net credit clearing the in-force min-credit floor, profits
+     * with POP &gt; 0.5, and scores with the credit↔HIGH match factor. §7 sizing a
+     * $50k book at the 3% cap against the example's $320 max loss yields 4
+     * contracts.
+     */
+    @Test
+    void section10ExampleA_classicHighIvBullishCreditSpread() {
+        int conviction = 56; // §3 Standard band (40–59)
+        EngineConfig creditConfig = creditStructureConfig();
+
+        StrategyType strategy = DirectionalStrategyMatrix
+                .select(Direction.BULLISH, VolatilityRegime.HIGH, conviction, config.conviction())
+                .orElseThrow();
+        assertThat(strategy).isEqualTo(StrategyType.BULL_PUT_CREDIT_SPREAD);
+
+        RecommendationCandidate candidate = selector.select("AAPL", strategy,
+                signal(Direction.BULLISH, conviction), regimeResult(VolatilityRegime.HIGH),
+                fullChain(), creditConfig).orElseThrow();
+
+        // Standard band → 0.20Δ short put; the protection leg is width-driven (§4.1).
+        RecommendationRationale.Selection sel = candidate.rationale().selection();
+        assertThat(sel.convictionBand()).isEqualTo("standard");
+        assertThat(sel.shortDeltaTarget()).isCloseTo(0.20, within(1e-9));
+        assertThat(sel.longDeltaTarget()).isEqualTo(0.0);
+
+        // Credit received, clears the in-force ⅓-style min-credit floor, R:R < 1, POP favorable.
+        double credit = -candidate.entryDebit();
+        double width = candidate.rationale().pricing().width();
+        assertThat(candidate.entryDebit()).isNegative();
+        assertThat(credit).isGreaterThanOrEqualTo(width * creditConfig.filters().minCreditToWidthRatio());
+        assertThat(candidate.maxProfit()).isCloseTo(credit * 100.0, within(1e-6));
+        assertThat(candidate.maxLoss()).isCloseTo((width - credit) * 100.0, within(1e-6));
+        assertThat(candidate.riskReward()).isLessThan(1.0);
+        assertThat(candidate.probabilityOfProfit()).isGreaterThan(0.5);
+
+        // §8 score = rawEV × credit↔HIGH match factor × conviction factor.
+        double rawEv = candidate.rationale().pricing().rawExpectedValue();
+        double convFactor = 0.5 + 0.5 * (conviction / 100.0);
+        assertThat(candidate.score())
+                .isCloseTo(rawEv * config.ranking().regimeFitMatch() * convFactor, within(1e-6));
+
+        // §7 sizing reproduces the example exactly: $50k × 3% = $1,500 budget;
+        // floor($1,500 / $320) = 4 contracts.
+        PositionSizer.Sizing sizing = PositionSizer.size(320.0, 50_000.0, 0.03);
+        assertThat(sizing.abstain()).isFalse();
+        assertThat(sizing.contracts()).isEqualTo(4);
+    }
+
+    /**
+     * §10 Example D — NVDA low-IV high-conviction long call. A BULLISH signal at
+     * conviction 100 (High band) under LOW IV unlocks a single-leg Long Call
+     * (§2/§4.3) rather than a debit vertical; the long leg targets 0.65Δ, max
+     * loss is the premium paid, and the score uses the long↔LOW match factor.
+     */
+    @Test
+    void section10ExampleD_lowIvHighConvictionLongCall() {
+        int conviction = 100; // §3 High band (80–100)
+
+        StrategyType strategy = DirectionalStrategyMatrix
+                .select(Direction.BULLISH, VolatilityRegime.LOW, conviction, config.conviction())
+                .orElseThrow();
+        assertThat(strategy).isEqualTo(StrategyType.LONG_CALL);
+
+        RecommendationCandidate candidate = selector.select("NVDA", strategy,
+                signal(Direction.BULLISH, conviction), regimeResult(VolatilityRegime.LOW),
+                fullChain(), config).orElseThrow();
+
+        // Single-leg long call bought at the 0.65Δ target (§4.3); no protection leg.
+        assertThat(candidate.legs()).hasSize(1);
+        RecommendationLeg leg = candidate.legs().get(0);
+        assertThat(leg.action()).isEqualTo("BUY");
+        assertThat(leg.callPut()).isEqualTo(CallPut.CALL);
+        RecommendationRationale.Selection sel = candidate.rationale().selection();
+        assertThat(sel.longDeltaTarget()).isCloseTo(0.65, within(1e-9));
+        assertThat(sel.shortDeltaTarget()).isEqualTo(0.0);
+
+        // Max loss is the debit premium (no protection leg to cap it).
+        double premium = candidate.entryDebit();
+        assertThat(premium).isPositive();
+        assertThat(candidate.maxLoss()).isCloseTo(premium * 100.0, within(1e-6));
+
+        // §8 score = rawEV × long↔LOW match factor × conviction factor.
+        double rawEv = candidate.rationale().pricing().rawExpectedValue();
+        double convFactor = 0.5 + 0.5 * (conviction / 100.0);
+        assertThat(candidate.score())
+                .isCloseTo(rawEv * config.ranking().regimeFitMatch() * convFactor, within(1e-6));
+    }
+
     @Test
     void returnsEmptyOnMissingOrEmptyChain() {
         DirectionSignal signal = signal(Direction.BULLISH, 65);

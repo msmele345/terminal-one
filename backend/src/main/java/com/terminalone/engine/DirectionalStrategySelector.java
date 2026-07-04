@@ -106,8 +106,10 @@ class DirectionalStrategySelector {
                 timeToExpiry, selected.averageIv());
         double rawEv = pop * selected.maxProfit() - (1.0 - pop) * selected.maxLoss();
         double convFactor = 0.5 + 0.5 * (signal.conviction() / 100.0);
-        // Regime-fit stays at the neutral factor until the §8 ranking objective lands (Phase 5 ranking AC).
-        double score = rawEv * config.ranking().regimeFitNeutral() * convFactor;
+        // Phase 5 AC6 (§8): regime-fit factor matches credit↔HIGH / debit-long↔LOW,
+        // neutral at NORMAL, counter otherwise — applied to the candidate score.
+        double regimeFit = regimeFactor(strategy, regime.regime(), config.ranking());
+        double score = rawEv * regimeFit * convFactor;
         double riskReward = selected.maxProfit() / selected.maxLoss();
         if (structure.credit()) {
             double credit = -selected.entryDebit();
@@ -144,6 +146,23 @@ class DirectionalStrategySelector {
         return new CandidateSelection(Optional.of(new RecommendationCandidate(symbol, strategy, signal, regime, expiry.get(),
                 selected.legs(), selected.entryDebit(), pop, selected.maxProfit(), selected.maxLoss(),
                 riskReward, score, 0, rationale)), List.copyOf(rejections));
+    }
+
+    /**
+     * §8 regime-fit factor: credit↔HIGH or debit/long↔LOW = match (1.15 default);
+     * NORMAL = neutral (1.00); the cross pairings = counter (0.85). Pure fn of
+     * {@code (strategy, regime, ranking config)}, folded into the candidate's
+     * {@code score} here at selection time; the {@link CandidateRanker} then sorts
+     * on that pre-stamped score without re-deriving the factor.
+     */
+    static double regimeFactor(StrategyType strategy, VolatilityRegime regime,
+                               EngineConfig.Ranking ranking) {
+        boolean credit = strategy.isCredit();
+        return switch (regime) {
+            case NORMAL -> ranking.regimeFitNeutral();
+            case HIGH -> credit ? ranking.regimeFitMatch() : ranking.regimeFitCounter();
+            case LOW -> credit ? ranking.regimeFitCounter() : ranking.regimeFitMatch();
+        };
     }
 
     private static CandidateSelection rejected(List<GuardrailRejection> rejections) {
