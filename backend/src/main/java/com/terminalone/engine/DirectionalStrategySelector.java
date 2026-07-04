@@ -138,11 +138,12 @@ class DirectionalStrategySelector {
                         selected.selectedLongDelta(), selected.selectedShortDelta()),
                 new RecommendationRationale.Pricing(selected.width(), selected.entryDebit(),
                         selected.breakeven(), pop, selected.maxProfit(), selected.maxLoss(),
-                        riskReward, rawEv));
+                        riskReward, rawEv),
+                null);
 
         return new CandidateSelection(Optional.of(new RecommendationCandidate(symbol, strategy, signal, regime, expiry.get(),
                 selected.legs(), selected.entryDebit(), pop, selected.maxProfit(), selected.maxLoss(),
-                riskReward, score, rationale)), List.copyOf(rejections));
+                riskReward, score, 0, rationale)), List.copyOf(rejections));
     }
 
     private static CandidateSelection rejected(List<GuardrailRejection> rejections) {

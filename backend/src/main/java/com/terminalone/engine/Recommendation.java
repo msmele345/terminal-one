@@ -82,6 +82,10 @@ public class Recommendation {
     @Column(nullable = false, precision = 19, scale = 6)
     private BigDecimal score;
 
+    /** Phase 5 AC5: contracts the engine sized the structure to (§7). */
+    @Column(nullable = false)
+    private int contracts;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "jsonb")
     private String rationale;
@@ -111,6 +115,7 @@ public class Recommendation {
                    double maxLoss,
                    double riskReward,
                    double score,
+                   int contracts,
                    String rationale,
                    Instant createdAt) {
         this.symbol = symbol;
@@ -131,6 +136,7 @@ public class Recommendation {
         this.maxLoss = decimal(maxLoss);
         this.riskReward = decimal(riskReward);
         this.score = decimal(score);
+        this.contracts = contracts;
         this.rationale = rationale;
         this.createdAt = createdAt;
     }
@@ -193,6 +199,10 @@ public class Recommendation {
 
     public double getScore() {
         return score.doubleValue();
+    }
+
+    public int getContracts() {
+        return contracts;
     }
 
     public String getRationale() {

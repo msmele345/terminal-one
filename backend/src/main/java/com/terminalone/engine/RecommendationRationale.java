@@ -4,7 +4,17 @@ public record RecommendationRationale(
         Signals signals,
         Regime regime,
         Selection selection,
-        Pricing pricing) {
+        Pricing pricing,
+        Sizing sizing) {
+
+    /** Phase 5 AC5 (§7): how many contracts the engine sized the structure to. */
+    public record Sizing(
+            int contracts,
+            double maxLossPerContract,
+            double portfolioValue,
+            double perTradeRiskPct,
+            double riskAmount) {
+    }
 
     public record Signals(
             double trendVote,
@@ -42,5 +52,10 @@ public record RecommendationRationale(
             double maxLoss,
             double riskReward,
             double rawExpectedValue) {
+    }
+
+    /** Selector-built rationales carry no sizing; the engine fills it after §7 sizing runs. */
+    public RecommendationRationale withSizing(Sizing sizing) {
+        return new RecommendationRationale(signals, regime, selection, pricing, sizing);
     }
 }

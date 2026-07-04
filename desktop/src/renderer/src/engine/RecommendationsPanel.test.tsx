@@ -38,6 +38,7 @@ function sampleRec(overrides: Partial<Recommendation> = {}): Recommendation {
         delta: 0.3
       }
     ],
+    contracts: 7,
     entryDebit: 4.9,
     probabilityOfProfit: 0.58,
     maxProfit: 510,
@@ -74,6 +75,13 @@ function sampleRec(overrides: Partial<Recommendation> = {}): Recommendation {
         maxLoss: 490,
         riskReward: 1.04,
         rawExpectedValue: 89.2
+      },
+      sizing: {
+        contracts: 7,
+        maxLossPerContract: 490,
+        portfolioValue: 150_000,
+        perTradeRiskPct: 0.03,
+        riskAmount: 3_430
       }
     },
     ...overrides

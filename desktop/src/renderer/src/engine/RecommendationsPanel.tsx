@@ -87,6 +87,7 @@ function RecommendationCard({ rec }: { rec: Recommendation }): JSX.Element {
 
       <div className="rec-stats">
         <Metric label="Expiry" value={rec.expiry} />
+        <Metric label="Contracts" value={String(rec.contracts)} />
         <Metric label="Entry debit" value={money(rec.entryDebit)} />
         <Metric label="POP" value={pct(rec.probabilityOfProfit)} />
         <Metric label="Max profit" value={money(rec.maxProfit)} className="gain" />
@@ -159,6 +160,16 @@ function Rationale({ rationale }: { rationale: RecommendationRationale }): JSX.E
         <Metric label="Breakeven" value={money(pricing.breakeven)} />
         <Metric label="Expected value" value={money(pricing.rawExpectedValue)} />
       </RationaleGroup>
+
+      {rationale.sizing != null && (
+        <RationaleGroup title="Sizing">
+          <Metric label="Contracts" value={String(rationale.sizing.contracts)} />
+          <Metric label="Max loss / contract" value={money(rationale.sizing.maxLossPerContract)} />
+          <Metric label="Risk per trade" value={money(rationale.sizing.riskAmount)} />
+          <Metric label="Portfolio value" value={money(rationale.sizing.portfolioValue)} />
+          <Metric label="Per-trade risk %" value={pct(rationale.sizing.perTradeRiskPct)} />
+        </RationaleGroup>
+      )}
     </div>
   )
 }

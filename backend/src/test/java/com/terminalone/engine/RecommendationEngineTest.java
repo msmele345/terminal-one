@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -32,6 +34,7 @@ import com.terminalone.marketdata.OptionChain;
 import com.terminalone.marketdata.PriceBar;
 import com.terminalone.marketdata.PriceHistory;
 import com.terminalone.portfolio.PositionSource;
+import com.terminalone.portfolio.StockPosition;
 
 @ExtendWith(MockitoExtension.class)
 class RecommendationEngineTest {
@@ -79,13 +82,14 @@ class RecommendationEngineTest {
         engineConfig = EngineConfigDefaults.load();
         activeEngineConfig = new ActiveEngineConfig(1, engineConfig);
         engineRunRequest = new EngineRunRequest("AAPL");
-        when(clock.instant()).thenReturn(AS_OF);
     }
 
     @Test
     void bullishNormalUnderlyingProducesAndPersistsABullCallDebitSpread() throws Exception {
         // Arrange — config
         when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+
+        when(clock.instant()).thenReturn(AS_OF);
 
         // Arrange — market data (bullish price history)
         PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
@@ -119,24 +123,31 @@ class RecommendationEngineTest {
                 new RecommendationRationale.Signals(0.8, 0.7, 0.6, 0.75, 60, 102.0, 100.0, 0.5, 55.0),
                 new RecommendationRationale.Regime(VolatilityRegime.NORMAL, "PHASE4_SINGLE_CELL_NORMAL", null),
                 new RecommendationRationale.Selection("standard", 51, 0.55, 0.30, 0.55, 0.30),
-                new RecommendationRationale.Pricing(10.0, 3.50, 103.50, 0.72, 6.50, 3.50, 1.86, 1.34));
+                new RecommendationRationale.Pricing(10.0, 3.50, 103.50, 0.72, 6.50, 350.0, 1.86, 1.34),
+                null);
 
         RecommendationCandidate candidate = new RecommendationCandidate(
                 "AAPL", StrategyType.BULL_CALL_DEBIT_SPREAD, signal, regime, EXPIRY,
-                List.of(longLeg, shortLeg), 3.50, 0.72, 6.50, 3.50, 1.86, 85.0, rationale);
+                List.of(longLeg, shortLeg), 3.50, 0.72, 6.50, 350.0, 1.86, 85.0, 0, rationale);
 
         when(strategySelector.select(
                 eq("AAPL"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
                 eq(chain), eq(engineConfig)))
                 .thenReturn(Optional.of(candidate));
 
-        // Arrange — persisted entity
+        // Arrange — §10 Example A: $50k book × 3% = $1,500 budget; $350/contract max loss =
+        // floor(1500/350) = 4 contracts.
+        when(positionSource.listStocks()).thenReturn(List.of(
+                new StockPosition("AAPL", new BigDecimal("100"), new BigDecimal("500.00"), TODAY)));
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        // Arrange — persisted entity (mock returns the contracts the engine sized to)
         Recommendation saved = new Recommendation(
                 "AAPL", StrategyType.BULL_CALL_DEBIT_SPREAD,
                 Direction.BULLISH, VolatilityRegime.NORMAL, 60,
                 RecommendationStatus.PAPER, 1, EXPIRY,
                 "AAPL-100C", 100.0, "AAPL-110C", 110.0,
-                3.50, 0.72, 6.50, 3.50, 1.86, 85.0, "{}", AS_OF);
+                3.50, 0.72, 6.50, 350.0, 1.86, 85.0, 4, "{}", AS_OF);
         when(recommendationRepository.save(any())).thenReturn(saved);
         when(objectMapper.writeValueAsString(any())).thenReturn("{}");
 
@@ -158,11 +169,70 @@ class RecommendationEngineTest {
         assertThat(result.entryDebit()).isCloseTo(3.50, within(1e-4));
         assertThat(result.probabilityOfProfit()).isCloseTo(0.72, within(1e-4));
         assertThat(result.maxProfit()).isCloseTo(6.50, within(1e-4));
-        assertThat(result.maxLoss()).isCloseTo(3.50, within(1e-4));
+        assertThat(result.maxLoss()).isCloseTo(350.0, within(1e-4));
         assertThat(result.riskReward()).isCloseTo(1.86, within(1e-4));
         assertThat(result.score()).isCloseTo(85.0, within(1e-4));
 
+        // AC5: the structure is sized to the per-trade-risk cap, not emitted unsized.
+        assertThat(result.contracts()).isEqualTo(4);
+        assertThat(result.rationale().sizing()).isNotNull();
+        assertThat(result.rationale().sizing().contracts()).isEqualTo(4);
+        assertThat(result.rationale().sizing().maxLossPerContract()).isCloseTo(350.0, within(1e-4));
+        assertThat(result.rationale().sizing().portfolioValue()).isCloseTo(50_000.0, within(1e-4));
+
         // Assert — persistence was invoked
         verify(recommendationRepository).save(any());
+    }
+
+    @Test
+    void abstainsWhenASingleContractExceedsThePerTradeRiskCap() throws Exception {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+
+        PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
+                new PriceBar(TODAY.minusDays(2), 99.0, 101.0, 98.0, 100.0, 1_000_000),
+                new PriceBar(TODAY.minusDays(1), 100.0, 102.0, 99.0, 101.0, 1_000_000),
+                new PriceBar(TODAY, 101.0, 103.0, 100.0, 102.0, 1_000_000)));
+        when(marketDataProvider.getDailyBars("AAPL")).thenReturn(history);
+
+        DirectionSignal signal = new DirectionSignal(
+                Direction.BULLISH, 60, 0.75, 0.8, 0.7, 0.6,
+                102.0, 100.0, 0.5, 55.0);
+        when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(signal);
+
+        OptionChain chain = new OptionChain("AAPL", 100.0, AS_OF, true, List.of());
+        when(marketDataProvider.getChain("AAPL")).thenReturn(chain);
+
+        VolatilityRegimeResult regime = VolatilityRegimeResult.phase4Normal(null);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(regime);
+
+        RecommendationRationale rationale = new RecommendationRationale(
+                new RecommendationRationale.Signals(0.8, 0.7, 0.6, 0.75, 60, 102.0, 100.0, 0.5, 55.0),
+                new RecommendationRationale.Regime(VolatilityRegime.NORMAL, "PHASE4_SINGLE_CELL_NORMAL", null),
+                new RecommendationRationale.Selection("standard", 51, 0.55, 0.30, 0.55, 0.30),
+                new RecommendationRationale.Pricing(10.0, 3.50, 103.50, 0.72, 6.50, 3.50, 1.86, 1.34),
+                null);
+        RecommendationCandidate candidate = new RecommendationCandidate(
+                "AAPL", StrategyType.BULL_CALL_DEBIT_SPREAD, signal, regime, EXPIRY,
+                List.of(new RecommendationLeg("BUY", "AAPL-100C", CallPut.CALL, 100.0, EXPIRY,
+                                5.0, 5.20, 5.10, 0.55)),
+                3.50, 0.72, 6.50, 3.50, 1.86, 85.0, 0, rationale);
+        when(strategySelector.select(
+                eq("AAPL"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
+                eq(chain), eq(engineConfig)))
+                .thenReturn(Optional.of(candidate));
+
+        // Tiny book — $100 × 3% = $3 budget < $350 per-contract max loss → RISK_TOO_LARGE.
+        when(positionSource.listStocks()).thenReturn(List.of(
+                new StockPosition("AAPL", new BigDecimal("1"), new BigDecimal("100.00"), TODAY)));
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        // Act
+        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+
+        // Assert — abstained, nothing persisted
+        assertThat(response.recommendations()).isEmpty();
+        verifyNoInteractions(recommendationRepository);
+        verifyNoInteractions(objectMapper);
     }
 }

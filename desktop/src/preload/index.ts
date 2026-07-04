@@ -169,6 +169,14 @@ export interface RecommendationRationale {
     riskReward: number
     rawExpectedValue: number
   }
+  // Phase 5 AC5 (§7): contracts the engine sized the structure to.
+  sizing: {
+    contracts: number
+    maxLossPerContract: number
+    portfolioValue: number
+    perTradeRiskPct: number
+    riskAmount: number
+  } | null
 }
 
 export interface Recommendation {
@@ -181,6 +189,7 @@ export interface Recommendation {
   configVersion: number
   expiry: string
   legs: RecommendationLeg[]
+  contracts: number
   entryDebit: number
   probabilityOfProfit: number
   maxProfit: number
