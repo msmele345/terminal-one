@@ -15,6 +15,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import com.terminalone.engine.config.EngineConfig;
@@ -173,6 +174,122 @@ class DirectionalStrategySelectorTest {
         assertThat(candidate.rationale().selection().selectedShortDelta()).isEqualTo(0.0);
     }
 
+    // ---- Phase 5 AC3: conviction bands shift strike deltas per §4 ----
+
+    /**
+     * §4.2 — across all three conviction bands, a debit vertical targets the
+     * long/short-leg deltas from the config's per-band ladder (safer at low
+     * conviction, more aggressive at high).
+     */
+    @ParameterizedTest(name = "conviction {0} -> {1} band, long {2}Δ / short {3}Δ")
+    @CsvSource({
+            "45, standard,  0.50, 0.25",
+            "65, confident, 0.55, 0.28",
+            "85, high,      0.62, 0.30",
+    })
+    void debitConvictionBandsShiftDeltaTargetsPerSection4(int conviction, String band,
+            double longTarget, double shortTarget) {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, conviction),
+                regimeResult(VolatilityRegime.NORMAL), fullChain(), config).orElseThrow();
+
+        RecommendationRationale.Selection sel = candidate.rationale().selection();
+        assertThat(sel.convictionBand()).isEqualTo(band);
+        assertThat(sel.longDeltaTarget()).isCloseTo(longTarget, within(1e-9));
+        assertThat(sel.shortDeltaTarget()).isCloseTo(shortTarget, within(1e-9));
+    }
+
+    /**
+     * §4.1 — across all three conviction bands, a credit vertical targets the
+     * short-leg delta from the config's per-band ladder; the protection leg is
+     * width-driven, so it carries no delta target.
+     */
+    @ParameterizedTest(name = "conviction {0} -> {1} band, short {2}Δ")
+    @CsvSource({
+            "45, standard,  0.20",
+            "65, confident, 0.30",
+            "85, high,      0.38",
+    })
+    void creditConvictionBandsShiftShortDeltaTargetPerSection4(int conviction, String band,
+            double shortTarget) {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, conviction),
+                regimeResult(VolatilityRegime.HIGH), fullChain(), config).orElseThrow();
+
+        RecommendationRationale.Selection sel = candidate.rationale().selection();
+        assertThat(sel.convictionBand()).isEqualTo(band);
+        assertThat(sel.shortDeltaTarget()).isCloseTo(shortTarget, within(1e-9));
+        assertThat(sel.longDeltaTarget()).isEqualTo(0.0);
+    }
+
+    /**
+     * The band delta targets have teeth: on a fine ($1-increment) chain, higher
+     * conviction sells closer to the money — a strictly higher short-put strike
+     * and larger |delta| as the band climbs standard → confident → high.
+     */
+    @Test
+    void higherConvictionSelectsMoreAggressiveStrikes() {
+        OptionChain fine = fineGrainedPutChain();
+        RecommendationCandidate standard = creditAt(45, fine);
+        RecommendationCandidate confident = creditAt(65, fine);
+        RecommendationCandidate high = creditAt(85, fine);
+
+        assertThat(shortStrike(standard))
+                .isLessThan(shortStrike(confident));
+        assertThat(shortStrike(confident))
+                .isLessThan(shortStrike(high));
+
+        assertThat(standard.rationale().selection().selectedShortDelta())
+                .isLessThan(confident.rationale().selection().selectedShortDelta());
+        assertThat(confident.rationale().selection().selectedShortDelta())
+                .isLessThan(high.rationale().selection().selectedShortDelta());
+    }
+
+    /**
+     * The §2/§4.3 unlock: the long single leg surfaces only at conviction ≥ 80
+     * <em>and</em> LOW IV. One below the threshold, or outside LOW IV, resolves
+     * to the two-leg vertical instead. Composed matrix → selector so the leg
+     * count reflects the actual built structure.
+     */
+    @Test
+    void longSingleLegUnlocksOnlyAtHighConvictionAndLowIv() {
+        // one below the unlock, LOW IV -> two-leg debit vertical
+        StrategyType belowUnlock = DirectionalStrategyMatrix
+                .select(Direction.BULLISH, VolatilityRegime.LOW, 79, config.conviction()).orElseThrow();
+        assertThat(belowUnlock).isEqualTo(StrategyType.BULL_CALL_DEBIT_SPREAD);
+        assertThat(selector.select("AAPL", belowUnlock, signal(Direction.BULLISH, 79),
+                regimeResult(VolatilityRegime.LOW), fullChain(), config).orElseThrow().legs())
+                .hasSize(2);
+
+        // at the unlock, LOW IV -> single-leg long
+        StrategyType unlocked = DirectionalStrategyMatrix
+                .select(Direction.BULLISH, VolatilityRegime.LOW, 80, config.conviction()).orElseThrow();
+        assertThat(unlocked).isEqualTo(StrategyType.LONG_CALL);
+        assertThat(selector.select("AAPL", unlocked, signal(Direction.BULLISH, 80),
+                regimeResult(VolatilityRegime.LOW), fullChain(), config).orElseThrow().legs())
+                .hasSize(1);
+
+        // high conviction alone never unlocks a long outside LOW IV
+        assertThat(DirectionalStrategyMatrix.select(Direction.BULLISH, VolatilityRegime.NORMAL, 100,
+                config.conviction())).contains(StrategyType.BULL_CALL_DEBIT_SPREAD);
+        assertThat(DirectionalStrategyMatrix.select(Direction.BULLISH, VolatilityRegime.HIGH, 100,
+                config.conviction())).contains(StrategyType.BULL_PUT_CREDIT_SPREAD);
+    }
+
+    private RecommendationCandidate creditAt(int conviction, OptionChain chain) {
+        return selector.select("AAPL", StrategyType.BULL_PUT_CREDIT_SPREAD,
+                signal(Direction.BULLISH, conviction), regimeResult(VolatilityRegime.HIGH), chain, config)
+                .orElseThrow();
+    }
+
+    private static double shortStrike(RecommendationCandidate candidate) {
+        return candidate.legs().stream()
+                .filter(l -> "SELL".equals(l.action()))
+                .map(RecommendationLeg::strike)
+                .findFirst()
+                .orElseThrow();
+    }
+
     // ---- ported Phase 4 cases, on the generalized selector ----
 
     @Test
@@ -296,6 +413,16 @@ class DirectionalStrategySelectorTest {
                 contracts.add(priced(CallPut.CALL, strike, expiry, 1_000));
                 contracts.add(priced(CallPut.PUT, strike, expiry, 1_000));
             }
+        }
+        return new OptionChain("AAPL", SPOT, AS_OF, true, contracts);
+    }
+
+    /** Puts only, strikes 80–105 in $1 steps at the credit-window expiry — fine
+     * enough that the per-band short-delta targets resolve to distinct strikes. */
+    private OptionChain fineGrainedPutChain() {
+        List<OptionContract> contracts = new ArrayList<>();
+        for (double strike = 80.0; strike <= 105.0; strike += 1.0) {
+            contracts.add(priced(CallPut.PUT, strike, CREDIT_EXPIRY, 1_000));
         }
         return new OptionChain("AAPL", SPOT, AS_OF, true, contracts);
     }
