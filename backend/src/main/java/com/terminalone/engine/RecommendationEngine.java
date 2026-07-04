@@ -9,6 +9,7 @@ import com.terminalone.marketdata.MarketDataProvider;
 import com.terminalone.marketdata.OptionChain;
 import com.terminalone.marketdata.PriceHistory;
 import com.terminalone.portfolio.OptionPosition;
+import com.terminalone.portfolio.PositionPnl;
 import com.terminalone.portfolio.PositionSource;
 import com.terminalone.portfolio.StockPosition;
 
@@ -63,8 +64,9 @@ public class RecommendationEngine {
     public EngineRunResponse run(EngineRunRequest request) {
         ActiveEngineConfig active = configProvider.getActive();
         List<RecommendationResponse> emitted = new ArrayList<>();
+        double portfolioValue = portfolioValueAtCost();
         for (String symbol : symbolsFor(request)) {
-            runSymbol(symbol, active).ifPresent(emitted::add);
+            runSymbol(symbol, active, portfolioValue).ifPresent(emitted::add);
             if (emitted.size() >= active.config().ranking().topN()) {
                 break;
             }
@@ -72,7 +74,8 @@ public class RecommendationEngine {
         return new EngineRunResponse(emitted);
     }
 
-    private java.util.Optional<RecommendationResponse> runSymbol(String symbol, ActiveEngineConfig active) {
+    private java.util.Optional<RecommendationResponse> runSymbol(String symbol, ActiveEngineConfig active,
+                                                                 double portfolioValue) {
         EngineConfig config = active.config();
         PriceHistory history = safe(() -> marketData.getDailyBars(symbol));
         DirectionSignal signal = signals.calculate(history, config.signal());
@@ -85,11 +88,47 @@ public class RecommendationEngine {
             return java.util.Optional.empty();
         }
 
-        return strategySelector.select(symbol, strategy.get(), signal, regime, chain, config)
-                .map(candidate -> {
-                    Recommendation saved = recommendations.save(toEntity(candidate, active.version()));
-                    return RecommendationResponse.from(saved, candidate);
-                });
+        java.util.Optional<RecommendationCandidate> candidate = strategySelector.select(
+                symbol, strategy.get(), signal, regime, chain, config);
+        if (candidate.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+
+        RecommendationCandidate unsized = candidate.get();
+        // Phase 5 AC5 (§7): cap defined risk to perTradeRiskPct of the portfolio.
+        PositionSizer.Sizing sizing = PositionSizer.size(unsized.maxLoss(), portfolioValue,
+                config.sizing().perTradeRiskPct());
+        if (sizing.abstain()) {
+            logger.info("Rejected {} {} candidate: {} (max loss ${} exceeds ${} cap)",
+                    unsized.symbol(), unsized.strategy(), PositionSizer.RISK_TOO_LARGE,
+                    unsized.maxLoss(), portfolioValue * config.sizing().perTradeRiskPct());
+            return java.util.Optional.empty();
+        }
+
+        RecommendationRationale.Sizing rationaleSizing = new RecommendationRationale.Sizing(
+                sizing.contracts(), unsized.maxLoss(), portfolioValue,
+                config.sizing().perTradeRiskPct(), sizing.riskAmount());
+        RecommendationCandidate sized = unsized.withSizing(
+                sizing.contracts(), unsized.rationale().withSizing(rationaleSizing));
+        Recommendation saved = recommendations.save(toEntity(sized, active.version()));
+        return java.util.Optional.of(RecommendationResponse.from(saved, sized));
+    }
+
+    /**
+     * The portfolio's total absolute-cost basis — the deterministic size base for §7.
+     * Stocks contribute {@code |qty × costBasis|}; options contribute
+     * {@code |qty × costBasis × 100|} (per {@link com.terminalone.portfolio.PositionPnl}).
+     */
+    private double portfolioValueAtCost() {
+        double value = 0.0;
+        for (StockPosition stock : positions.listStocks()) {
+            value += Math.abs(stock.getQuantity().doubleValue() * stock.getCostBasis().doubleValue());
+        }
+        for (OptionPosition option : positions.listOptions()) {
+            value += Math.abs(option.getQuantity().doubleValue()
+                    * option.getCostBasis().doubleValue() * PositionPnl.OPTION_MULTIPLIER);
+        }
+        return value;
     }
 
     private Recommendation toEntity(RecommendationCandidate candidate, int configVersion) {
@@ -122,6 +161,7 @@ public class RecommendationEngine {
                 candidate.maxLoss(),
                 candidate.riskReward(),
                 candidate.score(),
+                candidate.contracts(),
                 writeRationale(candidate.rationale()),
                 Instant.now(clock));
     }

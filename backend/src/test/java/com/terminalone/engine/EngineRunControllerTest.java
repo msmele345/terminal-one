@@ -100,7 +100,8 @@ class EngineRunControllerTest {
 
     @Test
     void bullishNormalUnderlyingProducesAndPersistsABullCallDebitSpread() throws Exception {
-        addStock("AAPL", 100, "90.00");
+        // Large enough book that the §7 3% cap admits the structure (else it abstains RISK_TOO_LARGE).
+        addStock("AAPL", 1_000, "150.00");
         seedNormalIvRankHistory("AAPL");
         when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
         when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
@@ -126,6 +127,9 @@ class EngineRunControllerTest {
                 .andExpect(jsonPath("$.recommendations[0].probabilityOfProfit").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].maxProfit").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].maxLoss").isNumber())
+                .andExpect(jsonPath("$.recommendations[0].contracts").isNumber())
+                .andExpect(jsonPath("$.recommendations[0].rationale.sizing.contracts").isNumber())
+                .andExpect(jsonPath("$.recommendations[0].rationale.sizing.portfolioValue").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].rationale.signals.trendVote").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].rationale.regime.reason").value(containsString("IV_RANK")))
                 .andExpect(jsonPath("$.recommendations[0].rationale.selection.longDeltaTarget").value(0.55));
@@ -133,8 +137,27 @@ class EngineRunControllerTest {
         assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
             assertThat(saved.getConfigVersion()).isEqualTo(1);
             assertThat(saved.getStrategy()).isEqualTo(StrategyType.BULL_CALL_DEBIT_SPREAD);
+            assertThat(saved.getContracts()).isGreaterThan(0);
             assertThat(saved.getRationale()).contains("IV_RANK");
+            assertThat(saved.getRationale()).contains("sizing");
         });
+    }
+
+    @Test
+    void abstainsWhenASingleContractExceedsThePerTradeRiskCap() throws Exception {
+        // $150 book × 3% = $4.50 risk budget — too small for any defined-risk contract.
+        addStock("AAPL", 1, "150.00");
+        seedNormalIvRankHistory("AAPL");
+        when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
+        when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(0)));
+
+        assertThat(recommendations.findAll()).isEmpty();
     }
 
     @Test
