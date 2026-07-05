@@ -78,6 +78,9 @@ function RecommendationCard({ rec }: { rec: Recommendation }): JSX.Element {
           <span className="tag">
             {rec.direction} · {rec.regime} IV
           </span>
+          {rec.rationale.incomeOverlay != null && (
+            <span className="tag">Caps upside above strike</span>
+          )}
         </div>
         <div className="rec-conviction">
           <span className="stat-label">Conviction</span>
@@ -170,6 +173,20 @@ function Rationale({ rationale }: { rationale: RecommendationRationale }): JSX.E
           <Metric label="Per-trade risk %" value={pct(rationale.sizing.perTradeRiskPct)} />
         </RationaleGroup>
       )}
+
+      {rationale.incomeOverlay != null && (
+        <RationaleGroup title="Income Overlay">
+          <Metric label="Label" value={incomeOverlayLabel(rationale.incomeOverlay.label)} />
+          <Metric label="Held shares" value={String(rationale.incomeOverlay.heldShares)} />
+          <Metric label="Cap strike" value={money(rationale.incomeOverlay.capStrike)} />
+          <Metric label="Premium / share" value={money(rationale.incomeOverlay.premiumPerShare)} />
+          <Metric
+            label="Capped upside / contract"
+            value={money(rationale.incomeOverlay.cappedUpsidePerContract)}
+          />
+          <p className="muted rationale-reason">{rationale.incomeOverlay.note}</p>
+        </RationaleGroup>
+      )}
     </div>
   )
 }
@@ -221,6 +238,14 @@ function pct(fraction: number): string {
 
 function strategyLabel(strategy: string): string {
   return strategy
+    .toLowerCase()
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function incomeOverlayLabel(label: string): string {
+  return label
     .toLowerCase()
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

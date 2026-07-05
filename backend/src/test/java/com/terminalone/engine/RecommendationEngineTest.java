@@ -66,6 +66,9 @@ class RecommendationEngineTest {
     private DirectionalStrategySelector strategySelector;
 
     @Mock
+    private IncomeOverlaySelector incomeOverlaySelector;
+
+    @Mock
     private RecommendationRepository recommendationRepository;
 
     @Mock

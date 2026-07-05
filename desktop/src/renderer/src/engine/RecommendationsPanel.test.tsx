@@ -147,6 +147,61 @@ describe('RecommendationsPanel', () => {
     expect(within(rationale).getByText(/confident/i)).toBeInTheDocument() // conviction band
   })
 
+  it('labels covered-call income overlays as capped upside', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        recommendations: [
+          sampleRec({
+            strategy: 'COVERED_CALL',
+            direction: 'NEUTRAL',
+            regime: 'HIGH',
+            contracts: 2,
+            legs: [
+              {
+                action: 'SELL',
+                optionSymbol: 'MSFT260808C00110000',
+                callPut: 'CALL',
+                strike: 110,
+                expiry: '2026-08-08',
+                bid: 2.3,
+                ask: 2.36,
+                mid: 2.33,
+                delta: 0.3
+              }
+            ],
+            rationale: {
+              ...sampleRec().rationale,
+              incomeOverlay: {
+                label: 'CAPS_UPSIDE_ABOVE_STRIKE',
+                note: 'Covered call income on held shares; upside is capped above the short-call strike.',
+                heldShares: 200,
+                contracts: 2,
+                capStrike: 110,
+                premiumPerShare: 2.33,
+                cappedUpsidePerContract: 1233
+              }
+            }
+          })
+        ]
+      }
+    }))
+    installEngineApi(run)
+
+    render(<RecommendationsPanel />)
+    await user.click(screen.getByRole('button', { name: /run engine/i }))
+
+    const card = await screen.findByTestId('recommendation')
+    expect(within(card).getByText(/covered call/i)).toBeInTheDocument()
+    expect(within(card).getByText(/caps upside above strike/i)).toBeInTheDocument()
+
+    await user.click(within(card).getByRole('button', { name: /why/i }))
+    const rationale = within(card).getByTestId('rationale')
+    expect(within(rationale).getByText(/income overlay/i)).toBeInTheDocument()
+    expect(within(rationale).getByText(/covered call income on held shares/i)).toBeInTheDocument()
+  })
+
   it('renders a clean abstain state when the engine returns no recommendations', async () => {
     const user = userEvent.setup()
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [] } }))

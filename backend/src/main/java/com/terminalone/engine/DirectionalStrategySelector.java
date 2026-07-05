@@ -417,6 +417,8 @@ class DirectionalStrategySelector {
                 case BEAR_CALL_CREDIT_SPREAD -> new Structure(Kind.CREDIT_SPREAD, CallPut.CALL, false);
                 case LONG_CALL -> new Structure(Kind.LONG_SINGLE, CallPut.CALL, true);
                 case LONG_PUT -> new Structure(Kind.LONG_SINGLE, CallPut.PUT, false);
+                case COVERED_CALL -> throw new IllegalArgumentException(
+                        "Covered calls are selected by IncomeOverlaySelector");
             };
         }
 

@@ -5,7 +5,17 @@ public record RecommendationRationale(
         Regime regime,
         Selection selection,
         Pricing pricing,
-        Sizing sizing) {
+        Sizing sizing,
+        IncomeOverlay incomeOverlay) {
+
+    public RecommendationRationale(
+            Signals signals,
+            Regime regime,
+            Selection selection,
+            Pricing pricing,
+            Sizing sizing) {
+        this(signals, regime, selection, pricing, sizing, null);
+    }
 
     /** Phase 5 AC5 (§7): how many contracts the engine sized the structure to. */
     public record Sizing(
@@ -14,6 +24,17 @@ public record RecommendationRationale(
             double portfolioValue,
             double perTradeRiskPct,
             double riskAmount) {
+    }
+
+    /** Phase 6 AC1: explicit user-facing label for income-overlay mechanics. */
+    public record IncomeOverlay(
+            String label,
+            String note,
+            int heldShares,
+            int contracts,
+            double capStrike,
+            double premiumPerShare,
+            double cappedUpsidePerContract) {
     }
 
     public record Signals(
@@ -56,6 +77,6 @@ public record RecommendationRationale(
 
     /** Selector-built rationales carry no sizing; the engine fills it after §7 sizing runs. */
     public RecommendationRationale withSizing(Sizing sizing) {
-        return new RecommendationRationale(signals, regime, selection, pricing, sizing);
+        return new RecommendationRationale(signals, regime, selection, pricing, sizing, incomeOverlay);
     }
 }
