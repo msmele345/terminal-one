@@ -134,10 +134,10 @@ class RecommendationEngineTest {
                 "AAPL", StrategyType.BULL_CALL_DEBIT_SPREAD, signal, regime, EXPIRY,
                 List.of(longLeg, shortLeg), 3.50, 0.72, 6.50, 350.0, 1.86, 85.0, 0, rationale);
 
-        when(strategySelector.select(
+        when(strategySelector.selectWithRejections(
                 eq("AAPL"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
                 eq(chain), eq(engineConfig)))
-                .thenReturn(Optional.of(candidate));
+                .thenReturn(new CandidateSelection(Optional.of(candidate), List.of()));
 
         // Arrange — §10 Example A: $50k book × 3% = $1,500 budget; $350/contract max loss =
         // floor(1500/350) = 4 contracts.
@@ -184,6 +184,9 @@ class RecommendationEngineTest {
         assertThat(result.rationale().sizing().maxLossPerContract()).isCloseTo(350.0, within(1e-4));
         assertThat(result.rationale().sizing().portfolioValue()).isCloseTo(50_000.0, within(1e-4));
 
+        // A qualifying underlying yields a trade, so nothing is abstained.
+        assertThat(response.abstentions()).isEmpty();
+
         // Assert — persistence was invoked
         verify(recommendationRepository).save(any());
     }
@@ -221,10 +224,10 @@ class RecommendationEngineTest {
                 List.of(new RecommendationLeg("BUY", "AAPL-100C", CallPut.CALL, 100.0, EXPIRY,
                                 5.0, 5.20, 5.10, 0.55)),
                 3.50, 0.72, 6.50, 3.50, 1.86, 85.0, 0, rationale);
-        when(strategySelector.select(
+        when(strategySelector.selectWithRejections(
                 eq("AAPL"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
                 eq(chain), eq(engineConfig)))
-                .thenReturn(Optional.of(candidate));
+                .thenReturn(new CandidateSelection(Optional.of(candidate), List.of()));
 
         // Tiny book — $100 × 3% = $3 budget < $350 per-contract max loss → RISK_TOO_LARGE.
         when(positionSource.listStocks()).thenReturn(List.of(
@@ -234,10 +237,116 @@ class RecommendationEngineTest {
         // Act
         EngineRunResponse response = recommendationEngine.run(engineRunRequest);
 
-        // Assert — abstained, nothing persisted
+        // Assert — abstained, nothing persisted, and the §7 reason is returned explicitly.
         assertThat(response.recommendations()).isEmpty();
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(PositionSizer.RISK_TOO_LARGE);
+        });
         verifyNoInteractions(recommendationRepository);
         verifyNoInteractions(objectMapper);
+    }
+
+    /**
+     * §10 Example B — a weak/neutral signal abstains explicitly. A NEUTRAL
+     * direction at LOW/NORMAL IV maps to nothing on the matrix; the engine must
+     * return a {@code WEAK_SIGNAL} abstention (never a silent drop) and touch
+     * neither selector.
+     */
+    @Test
+    void section10ExampleB_weakNeutralSignalAbstainsExplicitlyWithWeakSignal() {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(positionSource.listStocks()).thenReturn(List.of()); // no shares held
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
+                new PriceBar(TODAY.minusDays(1), 100.0, 100.5, 99.5, 100.0, 1_000_000),
+                new PriceBar(TODAY, 100.0, 100.5, 99.5, 100.0, 1_000_000)));
+        when(marketDataProvider.getDailyBars("AAPL")).thenReturn(history);
+        // Chain present (data is fine) — the abstain is about the weak signal, not missing data.
+        OptionChain chain = new OptionChain("AAPL", 100.0, AS_OF, true, List.of());
+        when(marketDataProvider.getChain("AAPL")).thenReturn(chain);
+
+        DirectionSignal neutral = new DirectionSignal(
+                Direction.NEUTRAL, 22, -0.18, -0.2, -0.15, -0.1, 100.0, 100.0, -0.05, 47.0);
+        when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(neutral);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(new VolatilityRegimeResult(VolatilityRegime.NORMAL, "IV_RANK", 0.30));
+
+        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+
+        assertThat(response.recommendations()).isEmpty();
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(AbstainReason.WEAK_SIGNAL.name());
+        });
+        verifyNoInteractions(strategySelector, incomeOverlaySelector, recommendationRepository);
+    }
+
+    /**
+     * §2 no-data abstain — when the option chain can't be sourced, the engine
+     * abstains {@code NO_MARKET_DATA} rather than guess, and never reaches the
+     * signal, regime, or selection stages.
+     */
+    @Test
+    void underlyingWithNoSourceableChainAbstainsWithNoMarketData() {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(positionSource.listStocks()).thenReturn(List.of());
+        when(positionSource.listOptions()).thenReturn(List.of());
+        when(marketDataProvider.getChain("AAPL")).thenReturn(null);
+
+        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+
+        assertThat(response.recommendations()).isEmpty();
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(AbstainReason.NO_MARKET_DATA.name());
+        });
+        verifyNoInteractions(technicalSignalCalculator, volatilityRegimeCalculator,
+                strategySelector, incomeOverlaySelector, recommendationRepository);
+    }
+
+    /**
+     * A directional structure whose only candidate is rejected by a §6 guardrail
+     * bubbles that guardrail reason up verbatim as the abstention (here
+     * {@code NO_VALID_EXPIRY}), so the caller sees the precise cause.
+     */
+    @Test
+    void directionalGuardrailRejectionBubblesUpAsAnExplicitAbstention() {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(positionSource.listStocks()).thenReturn(List.of());
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
+                new PriceBar(TODAY.minusDays(1), 99.0, 101.0, 98.0, 100.0, 1_000_000),
+                new PriceBar(TODAY, 101.0, 103.0, 100.0, 102.0, 1_000_000)));
+        when(marketDataProvider.getDailyBars("AAPL")).thenReturn(history);
+        OptionChain chain = new OptionChain("AAPL", 100.0, AS_OF, true, List.of());
+        when(marketDataProvider.getChain("AAPL")).thenReturn(chain);
+
+        DirectionSignal signal = new DirectionSignal(
+                Direction.BULLISH, 60, 0.75, 0.8, 0.7, 0.6, 102.0, 100.0, 0.5, 55.0);
+        when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(signal);
+        VolatilityRegimeResult regime = new VolatilityRegimeResult(VolatilityRegime.NORMAL, "IV_RANK", 0.30);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(regime);
+
+        GuardrailRejection rejection = new GuardrailRejection("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, GuardrailReason.NO_VALID_EXPIRY,
+                "No expiration falls inside DTE window [35,70]");
+        when(strategySelector.selectWithRejections(
+                eq("AAPL"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
+                eq(chain), eq(engineConfig)))
+                .thenReturn(new CandidateSelection(Optional.empty(), List.of(rejection)));
+
+        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+
+        assertThat(response.recommendations()).isEmpty();
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(GuardrailReason.NO_VALID_EXPIRY.name());
+        });
+        verifyNoInteractions(recommendationRepository);
     }
 
     @Test
@@ -291,10 +400,10 @@ class RecommendationEngineTest {
             RecommendationCandidate candidate = new RecommendationCandidate(
                     symbol, StrategyType.BULL_CALL_DEBIT_SPREAD, signal, regime, EXPIRY,
                     List.of(longLeg, shortLeg), 3.50, 0.72, 6.50, 3.50, 1.86, scores[i], 0, rationale);
-            when(strategySelector.select(
+            when(strategySelector.selectWithRejections(
                     eq(symbol), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
                     eq(chain), eq(engineConfig)))
-                    .thenReturn(Optional.of(candidate));
+                    .thenReturn(new CandidateSelection(Optional.of(candidate), List.of()));
         }
 
         when(objectMapper.writeValueAsString(any())).thenReturn("{}");

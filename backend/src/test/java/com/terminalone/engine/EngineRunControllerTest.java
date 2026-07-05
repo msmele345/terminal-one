@@ -113,6 +113,7 @@ class EngineRunControllerTest {
                         .content("{}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.recommendations", hasSize(1)))
+                .andExpect(jsonPath("$.abstentions", hasSize(0)))
                 .andExpect(jsonPath("$.recommendations[0].symbol").value("AAPL"))
                 .andExpect(jsonPath("$.recommendations[0].strategy").value("BULL_CALL_DEBIT_SPREAD"))
                 .andExpect(jsonPath("$.recommendations[0].direction").value("BULLISH"))
@@ -294,6 +295,47 @@ class EngineRunControllerTest {
             assertThat(saved.getContracts()).isEqualTo(1);
             assertThat(saved.getRationale()).contains("REQUIRES_CASH_COLLATERAL");
         });
+    }
+
+    @Test
+    void neutralNormalIvUnderlyingAbstainsExplicitlyWithWeakSignal() throws Exception {
+        // Flat history → NEUTRAL direction; NORMAL IV rank → the §2 NEUTRAL row abstains
+        // (income overlays only unlock at HIGH IV), returned as an explicit WEAK_SIGNAL.
+        addStock("FLAT", 100, "100.00");
+        seedNormalIvRankHistory("FLAT");
+        when(marketData.getDailyBars("FLAT")).thenReturn(flatHistory("FLAT"));
+        when(marketData.getChain("FLAT")).thenReturn(normalIvChain("FLAT"));
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(0)))
+                .andExpect(jsonPath("$.abstentions", hasSize(1)))
+                .andExpect(jsonPath("$.abstentions[0].symbol").value("FLAT"))
+                .andExpect(jsonPath("$.abstentions[0].reason").value("WEAK_SIGNAL"))
+                .andExpect(jsonPath("$.abstentions[0].detail").isString());
+
+        assertThat(recommendations.findAll()).isEmpty();
+    }
+
+    @Test
+    void underlyingWithNoSourceableChainAbstainsExplicitlyWithNoMarketData() throws Exception {
+        // §2 no-data abstain: the chain can't be sourced, so the engine abstains
+        // NO_MARKET_DATA rather than guess — no signal/regime/selection is attempted.
+        addStock("DARK", 100, "100.00");
+        when(marketData.getChain("DARK")).thenReturn(null);
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(0)))
+                .andExpect(jsonPath("$.abstentions", hasSize(1)))
+                .andExpect(jsonPath("$.abstentions[0].symbol").value("DARK"))
+                .andExpect(jsonPath("$.abstentions[0].reason").value("NO_MARKET_DATA"));
+
+        assertThat(recommendations.findAll()).isEmpty();
     }
 
     private void seedNormalIvRankHistory(String symbol) {

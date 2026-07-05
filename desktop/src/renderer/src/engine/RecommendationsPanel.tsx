@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Recommendation, RecommendationRationale } from '../../../preload'
+import type { EngineAbstention, Recommendation, RecommendationRationale } from '../../../preload'
 
 type RunState = 'idle' | 'running' | 'done' | 'error'
 
@@ -9,6 +9,7 @@ type RunState = 'idle' | 'running' | 'done' | 'error'
 export function RecommendationsPanel(): JSX.Element {
   const [state, setState] = useState<RunState>('idle')
   const [recs, setRecs] = useState<Recommendation[]>([])
+  const [abstentions, setAbstentions] = useState<EngineAbstention[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const run = async (): Promise<void> => {
@@ -17,6 +18,7 @@ export function RecommendationsPanel(): JSX.Element {
     const res = await window.api.engine.run()
     if (res.ok) {
       setRecs(res.data.recommendations)
+      setAbstentions(res.data.abstentions ?? [])
       setState('done')
     } else {
       setError(res.error)
@@ -46,7 +48,7 @@ export function RecommendationsPanel(): JSX.Element {
 
       {state === 'running' && <p className="muted">Running the engine…</p>}
 
-      {state === 'done' && recs.length === 0 && (
+      {state === 'done' && recs.length === 0 && abstentions.length === 0 && (
         <div className="empty-state" data-testid="engine-empty">
           <p className="empty-glyph">✧</p>
           <p>No trade.</p>
@@ -63,7 +65,32 @@ export function RecommendationsPanel(): JSX.Element {
           ))}
         </div>
       )}
+
+      {state === 'done' && abstentions.length > 0 && (
+        <Abstentions abstentions={abstentions} />
+      )}
     </section>
+  )
+}
+
+// Phase 6 AC3: the engine returns an explicit reason for every underlying it
+// passed on, so "no trade" is auditable rather than a silent gap.
+function Abstentions({ abstentions }: { abstentions: EngineAbstention[] }): JSX.Element {
+  return (
+    <div className="abstentions" data-testid="engine-abstentions">
+      <p className="muted abstentions-title">
+        No trade on {abstentions.length} underlying{abstentions.length > 1 ? 's' : ''} — here&apos;s why:
+      </p>
+      <ul className="abstention-list">
+        {abstentions.map((a) => (
+          <li key={a.symbol} className="abstention" data-testid="abstention">
+            <span className="neon abstention-symbol">{a.symbol}</span>
+            <span className="tag">{formatLabel(a.reason)}</span>
+            <span className="muted abstention-detail">{a.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 

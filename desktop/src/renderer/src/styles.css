@@ -734,6 +734,46 @@ body {
   margin: 4px 0 0;
 }
 
+/* ---- Abstentions (Phase 6 AC3: explicit "no trade" reasons) ---- */
+.abstentions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--edge);
+}
+
+.abstentions-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.abstention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.abstention {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.abstention-symbol {
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.abstention-detail {
+  font-size: 12px;
+}
+
 /* ---- Disclaimer ---- */
 .disclaimer {
   text-align: center;

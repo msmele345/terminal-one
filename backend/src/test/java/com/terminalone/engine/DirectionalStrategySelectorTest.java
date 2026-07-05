@@ -582,9 +582,9 @@ class DirectionalStrategySelectorTest {
     // chain those exact values won't reproduce, so each test pins the
     // *deterministic* claims the engine owns — the mapping, the delta targets,
     // the credit/debit economics identities, the regime-fit factor, and the
-    // sizing rule — not the illustrative prices. Examples B (WEAK_SIGNAL abstain)
-    // and C (Covered Call income overlay) depend on Phase 6 machinery and are
-    // encoded when that lands.
+    // sizing rule — not the illustrative prices. Examples B (WEAK_SIGNAL abstain,
+    // in RecommendationEngineTest) and C (Covered Call income overlay, in
+    // IncomeOverlaySelectorTest) live with their Phase 6 machinery.
 
     /**
      * §10 Example A — AAPL classic high-IV bullish credit spread. A BULLISH
