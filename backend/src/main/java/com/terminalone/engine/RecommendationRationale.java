@@ -1,5 +1,7 @@
 package com.terminalone.engine;
 
+import java.util.List;
+
 public record RecommendationRationale(
         Signals signals,
         Regime regime,
@@ -7,7 +9,12 @@ public record RecommendationRationale(
         Pricing pricing,
         Sizing sizing,
         IncomeOverlay incomeOverlay,
-        EntrySuggestion entrySuggestion) {
+        EntrySuggestion entrySuggestion,
+        List<Warning> warnings) {
+
+    public RecommendationRationale {
+        warnings = warnings == null ? List.of() : List.copyOf(warnings);
+    }
 
     public RecommendationRationale(
             Signals signals,
@@ -15,7 +22,7 @@ public record RecommendationRationale(
             Selection selection,
             Pricing pricing,
             Sizing sizing) {
-        this(signals, regime, selection, pricing, sizing, null, null);
+        this(signals, regime, selection, pricing, sizing, null, null, List.of());
     }
 
     public RecommendationRationale(
@@ -25,7 +32,18 @@ public record RecommendationRationale(
             Pricing pricing,
             Sizing sizing,
             IncomeOverlay incomeOverlay) {
-        this(signals, regime, selection, pricing, sizing, incomeOverlay, null);
+        this(signals, regime, selection, pricing, sizing, incomeOverlay, null, List.of());
+    }
+
+    public RecommendationRationale(
+            Signals signals,
+            Regime regime,
+            Selection selection,
+            Pricing pricing,
+            Sizing sizing,
+            IncomeOverlay incomeOverlay,
+            EntrySuggestion entrySuggestion) {
+        this(signals, regime, selection, pricing, sizing, incomeOverlay, entrySuggestion, List.of());
     }
 
     /** Phase 5 AC5 (§7): how many contracts the engine sized the structure to. */
@@ -60,6 +78,18 @@ public record RecommendationRationale(
             double strike,
             double premiumPerShare,
             double requiredCapital) {
+    }
+
+    /** Phase 6 AC4: visible non-blocking caveats such as the V1 earnings fallback. */
+    public record Warning(
+            String label,
+            String note) {
+
+        static Warning earningsCalendarUnavailable() {
+            return new Warning(
+                    "EARNINGS_CALENDAR_UNAVAILABLE",
+                    "Earnings calendar unavailable; expiry was not screened for earnings.");
+        }
     }
 
     public record Signals(
@@ -103,6 +133,6 @@ public record RecommendationRationale(
     /** Selector-built rationales carry no sizing; the engine fills it after §7 sizing runs. */
     public RecommendationRationale withSizing(Sizing sizing) {
         return new RecommendationRationale(signals, regime, selection, pricing, sizing, incomeOverlay,
-                entrySuggestion);
+                entrySuggestion, warnings);
     }
 }

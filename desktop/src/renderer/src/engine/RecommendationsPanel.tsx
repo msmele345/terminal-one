@@ -84,6 +84,9 @@ function RecommendationCard({ rec }: { rec: Recommendation }): JSX.Element {
           {rec.rationale.entrySuggestion != null && (
             <span className="tag">Requires cash collateral</span>
           )}
+          {hasWarning(rec, 'EARNINGS_CALENDAR_UNAVAILABLE') && (
+            <span className="tag warn">Earnings not screened</span>
+          )}
         </div>
         <div className="rec-conviction">
           <span className="stat-label">Conviction</span>
@@ -201,6 +204,17 @@ function Rationale({ rationale }: { rationale: RecommendationRationale }): JSX.E
           <p className="muted rationale-reason">{rationale.entrySuggestion.note}</p>
         </RationaleGroup>
       )}
+
+      {rationale.warnings != null && rationale.warnings.length > 0 && (
+        <RationaleGroup title="Warnings">
+          {rationale.warnings.map((warning) => (
+            <div key={warning.label}>
+              <Metric label="Label" value={formatLabel(warning.label)} />
+              <p className="muted rationale-reason">{warning.note}</p>
+            </div>
+          ))}
+        </RationaleGroup>
+      )}
     </div>
   )
 }
@@ -256,6 +270,10 @@ function strategyLabel(strategy: string): string {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+function hasWarning(rec: Recommendation, label: string): boolean {
+  return rec.rationale.warnings?.some((warning) => warning.label === label) ?? false
 }
 
 // Snake-cased engine labels (CAPS_UPSIDE_ABOVE_STRIKE, REQUIRES_CASH_COLLATERAL) → Title Case.

@@ -9,11 +9,13 @@ import com.terminalone.marketdata.OptionInput;
 import com.terminalone.marketdata.OptionValuation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -35,10 +37,17 @@ class IncomeOverlaySelector {
 
     private final OptionAnalytics analytics;
     private final Clock clock;
+    private final EarningsCalendar earningsCalendar;
 
     IncomeOverlaySelector(OptionAnalytics analytics, Clock clock) {
+        this(analytics, clock, EarningsCalendar.unavailable());
+    }
+
+    @Autowired
+    IncomeOverlaySelector(OptionAnalytics analytics, Clock clock, EarningsCalendar earningsCalendar) {
         this.analytics = analytics;
         this.clock = clock;
+        this.earningsCalendar = earningsCalendar;
     }
 
     Optional<RecommendationCandidate> selectCoveredCall(String symbol,
@@ -54,20 +63,23 @@ class IncomeOverlaySelector {
         }
 
         LocalDate today = LocalDate.now(clock);
-        Optional<LocalDate> expiry = selectExpiry(chain, today,
-                config.expiry().incomeDteTarget(), config.expiry().incomeDteWindow());
-        if (expiry.isEmpty()) {
-            logger.info("Rejected {} {} candidate: {} (No expiration falls inside income DTE window [{},{}])",
-                    symbol, StrategyType.COVERED_CALL, GuardrailReason.NO_VALID_EXPIRY,
-                    config.expiry().incomeDteWindow().min(), config.expiry().incomeDteWindow().max());
+        ExpirySelection expiry = selectExpiry(symbol, StrategyType.COVERED_CALL, chain, today,
+                config.expiry().incomeDteTarget(), config.expiry().incomeDteWindow(), config);
+        if (expiry.expiry().isEmpty()) {
+            if (!expiry.hadWindowExpiry()) {
+                logger.info("Rejected {} {} candidate: {} (No expiration falls inside income DTE window [{},{}])",
+                        symbol, StrategyType.COVERED_CALL, GuardrailReason.NO_VALID_EXPIRY,
+                        config.expiry().incomeDteWindow().min(), config.expiry().incomeDteWindow().max());
+            }
             return Optional.empty();
         }
+        LocalDate selectedExpiry = expiry.expiry().orElseThrow();
 
-        int dte = (int) ChronoUnit.DAYS.between(today, expiry.get());
+        int dte = (int) ChronoUnit.DAYS.between(today, selectedExpiry);
         double timeToExpiry = dte / DAYS_PER_YEAR;
         List<PricedContract> calls = chain.contracts().stream()
                 .filter(c -> c.callPut() == CallPut.CALL)
-                .filter(c -> c.expiration().equals(expiry.get()))
+                .filter(c -> c.expiration().equals(selectedExpiry))
                 .filter(c -> passesOpenInterest(symbol, StrategyType.COVERED_CALL, c, config))
                 .filter(c -> passesBidAskLiquidity(symbol, StrategyType.COVERED_CALL, c, config))
                 .map(c -> price(c, chain.underlyingPrice(), timeToExpiry))
@@ -111,10 +123,12 @@ class IncomeOverlaySelector {
                         contracts,
                         shortCall.strike(),
                         premium,
-                        maxProfit));
+                        maxProfit),
+                null,
+                expiry.warnings());
 
         return Optional.of(new RecommendationCandidate(symbol, StrategyType.COVERED_CALL, signal, regime,
-                expiry.get(), List.of(leg("SELL", shortCall)), -premium, pop,
+                selectedExpiry, List.of(leg("SELL", shortCall)), -premium, pop,
                 maxProfit, 0.0, 0.0, score, contracts, rationale));
     }
 
@@ -137,20 +151,23 @@ class IncomeOverlaySelector {
         }
 
         LocalDate today = LocalDate.now(clock);
-        Optional<LocalDate> expiry = selectExpiry(chain, today,
-                config.expiry().incomeDteTarget(), config.expiry().incomeDteWindow());
-        if (expiry.isEmpty()) {
-            logger.info("Rejected {} {} candidate: {} (No expiration falls inside income DTE window [{},{}])",
-                    symbol, StrategyType.CASH_SECURED_PUT, GuardrailReason.NO_VALID_EXPIRY,
-                    config.expiry().incomeDteWindow().min(), config.expiry().incomeDteWindow().max());
+        ExpirySelection expiry = selectExpiry(symbol, StrategyType.CASH_SECURED_PUT, chain, today,
+                config.expiry().incomeDteTarget(), config.expiry().incomeDteWindow(), config);
+        if (expiry.expiry().isEmpty()) {
+            if (!expiry.hadWindowExpiry()) {
+                logger.info("Rejected {} {} candidate: {} (No expiration falls inside income DTE window [{},{}])",
+                        symbol, StrategyType.CASH_SECURED_PUT, GuardrailReason.NO_VALID_EXPIRY,
+                        config.expiry().incomeDteWindow().min(), config.expiry().incomeDteWindow().max());
+            }
             return Optional.empty();
         }
+        LocalDate selectedExpiry = expiry.expiry().orElseThrow();
 
-        int dte = (int) ChronoUnit.DAYS.between(today, expiry.get());
+        int dte = (int) ChronoUnit.DAYS.between(today, selectedExpiry);
         double timeToExpiry = dte / DAYS_PER_YEAR;
         List<PricedContract> puts = chain.contracts().stream()
                 .filter(c -> c.callPut() == CallPut.PUT)
-                .filter(c -> c.expiration().equals(expiry.get()))
+                .filter(c -> c.expiration().equals(selectedExpiry))
                 .filter(c -> passesOpenInterest(symbol, StrategyType.CASH_SECURED_PUT, c, config))
                 .filter(c -> passesBidAskLiquidity(symbol, StrategyType.CASH_SECURED_PUT, c, config))
                 .map(c -> price(c, chain.underlyingPrice(), timeToExpiry))
@@ -200,18 +217,23 @@ class IncomeOverlaySelector {
                         contracts,
                         strike,
                         premium,
-                        requiredCapital));
+                        requiredCapital),
+                expiry.warnings());
 
         return Optional.of(new RecommendationCandidate(symbol, StrategyType.CASH_SECURED_PUT, signal, regime,
-                expiry.get(), List.of(leg("SELL", shortPut)), -premium, pop,
+                selectedExpiry, List.of(leg("SELL", shortPut)), -premium, pop,
                 maxProfit, maxLoss, riskReward, score, contracts, rationale));
     }
 
-    private Optional<LocalDate> selectExpiry(OptionChain chain, LocalDate today,
-                                             EngineConfig.IntRange target,
-                                             EngineConfig.IntRange window) {
+    private ExpirySelection selectExpiry(String symbol,
+                                         StrategyType strategy,
+                                         OptionChain chain,
+                                         LocalDate today,
+                                         EngineConfig.IntRange target,
+                                         EngineConfig.IntRange window,
+                                         EngineConfig config) {
         double targetMid = 0.5 * (target.min() + target.max());
-        return chain.contracts().stream()
+        List<LocalDate> expiries = chain.contracts().stream()
                 .map(OptionContract::expiration)
                 .distinct()
                 .filter(e -> e.isAfter(today))
@@ -219,9 +241,31 @@ class IncomeOverlaySelector {
                     long dte = ChronoUnit.DAYS.between(today, e);
                     return dte >= window.min() && dte <= window.max();
                 })
-                .min(Comparator
+                .sorted(Comparator
                         .comparingDouble((LocalDate e) -> Math.abs(ChronoUnit.DAYS.between(today, e) - targetMid))
-                        .thenComparing(Comparator.naturalOrder()));
+                        .thenComparing(Comparator.naturalOrder()))
+                .toList();
+        if (expiries.isEmpty()) {
+            return new ExpirySelection(Optional.empty(), false, List.of());
+        }
+        List<RecommendationRationale.Warning> warnings = new ArrayList<>();
+        for (LocalDate expiry : expiries) {
+            if (!config.filters().avoidEarnings()) {
+                return new ExpirySelection(Optional.of(expiry), true, warnings);
+            }
+            EarningsCheck check = earningsCalendar.check(symbol, today, expiry);
+            if (check.status() == EarningsCheck.Status.SPANS_EARNINGS) {
+                logger.info("Rejected {} {} candidate: {} (expiration {} spans earnings date {})",
+                        symbol, strategy, GuardrailReason.EARNINGS_SPANS_EXPIRY, expiry,
+                        check.earningsDate());
+                continue;
+            }
+            if (check.status() == EarningsCheck.Status.UNAVAILABLE) {
+                warnings.add(RecommendationRationale.Warning.earningsCalendarUnavailable());
+            }
+            return new ExpirySelection(Optional.of(expiry), true, warnings);
+        }
+        return new ExpirySelection(Optional.empty(), true, warnings);
     }
 
     private boolean passesOpenInterest(String symbol, StrategyType strategy, OptionContract contract,
@@ -305,5 +349,11 @@ class IncomeOverlaySelector {
         double absDelta() {
             return Math.abs(delta);
         }
+    }
+
+    private record ExpirySelection(
+            Optional<LocalDate> expiry,
+            boolean hadWindowExpiry,
+            List<RecommendationRationale.Warning> warnings) {
     }
 }

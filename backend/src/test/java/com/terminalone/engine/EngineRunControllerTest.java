@@ -134,7 +134,9 @@ class EngineRunControllerTest {
                 .andExpect(jsonPath("$.recommendations[0].rationale.sizing.portfolioValue").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].rationale.signals.trendVote").isNumber())
                 .andExpect(jsonPath("$.recommendations[0].rationale.regime.reason").value(containsString("IV_RANK")))
-                .andExpect(jsonPath("$.recommendations[0].rationale.selection.longDeltaTarget").value(0.55));
+                .andExpect(jsonPath("$.recommendations[0].rationale.selection.longDeltaTarget").value(0.55))
+                .andExpect(jsonPath("$.recommendations[0].rationale.warnings[0].label")
+                        .value("EARNINGS_CALENDAR_UNAVAILABLE"));
 
         assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
             assertThat(saved.getConfigVersion()).isEqualTo(1);
@@ -142,6 +144,7 @@ class EngineRunControllerTest {
             assertThat(saved.getContracts()).isGreaterThan(0);
             assertThat(saved.getRationale()).contains("IV_RANK");
             assertThat(saved.getRationale()).contains("sizing");
+            assertThat(saved.getRationale()).contains("EARNINGS_CALENDAR_UNAVAILABLE");
         });
     }
 

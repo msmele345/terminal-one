@@ -198,6 +198,11 @@ export interface RecommendationRationale {
     premiumPerShare: number
     requiredCapital: number
   } | null
+  // Phase 6 AC4: non-blocking caveats such as unavailable earnings screening.
+  warnings?: {
+    label: string
+    note: string
+  }[]
 }
 
 export interface Recommendation {

@@ -9,6 +9,7 @@ import com.terminalone.marketdata.OptionInput;
 import com.terminalone.marketdata.OptionValuation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -45,10 +46,17 @@ class DirectionalStrategySelector {
 
     private final OptionAnalytics analytics;
     private final Clock clock;
+    private final EarningsCalendar earningsCalendar;
 
     DirectionalStrategySelector(OptionAnalytics analytics, Clock clock) {
+        this(analytics, clock, EarningsCalendar.unavailable());
+    }
+
+    @Autowired
+    DirectionalStrategySelector(OptionAnalytics analytics, Clock clock, EarningsCalendar earningsCalendar) {
         this.analytics = analytics;
         this.clock = clock;
+        this.earningsCalendar = earningsCalendar;
     }
 
     Optional<RecommendationCandidate> select(String symbol, StrategyType strategy,
@@ -65,6 +73,7 @@ class DirectionalStrategySelector {
                                             OptionChain chain,
                                             EngineConfig config) {
         List<GuardrailRejection> rejections = new ArrayList<>();
+        List<RecommendationRationale.Warning> warnings = new ArrayList<>();
         if (chain == null || chain.underlyingPrice() <= 0.0 || chain.contracts().isEmpty()) {
             return rejected(rejections);
         }
@@ -74,19 +83,24 @@ class DirectionalStrategySelector {
                 ? config.expiry().creditDteTarget() : config.expiry().debitDteTarget();
         EngineConfig.IntRange dteWindow = structure.credit()
                 ? config.expiry().creditDteWindow() : config.expiry().debitDteWindow();
-        Optional<LocalDate> expiry = selectExpiry(chain, today, dteTarget, dteWindow);
-        if (expiry.isEmpty()) {
-            rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.NO_VALID_EXPIRY,
-                    "No expiration falls inside DTE window [%d,%d]".formatted(dteWindow.min(), dteWindow.max())));
+        ExpirySelection expiry = selectExpiry(symbol, strategy, chain, today, dteTarget, dteWindow,
+                config, rejections, warnings);
+        if (expiry.expiry().isEmpty()) {
+            if (!expiry.hadWindowExpiry()) {
+                rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.NO_VALID_EXPIRY,
+                        "No expiration falls inside DTE window [%d,%d]".formatted(
+                                dteWindow.min(), dteWindow.max())));
+            }
             return rejected(rejections);
         }
-        int dte = (int) ChronoUnit.DAYS.between(today, expiry.get());
+        LocalDate selectedExpiry = expiry.expiry().orElseThrow();
+        int dte = (int) ChronoUnit.DAYS.between(today, selectedExpiry);
         double timeToExpiry = dte / DAYS_PER_YEAR;
         String band = convictionBand(signal.conviction(), config.conviction());
 
         List<PricedContract> contracts = chain.contracts().stream()
                 .filter(c -> c.callPut() == structure.optionType())
-                .filter(c -> c.expiration().equals(expiry.get()))
+                .filter(c -> c.expiration().equals(selectedExpiry))
                 .filter(c -> passesOpenInterest(symbol, strategy, c, config, rejections))
                 .filter(c -> passesBidAskLiquidity(symbol, strategy, c, config, rejections))
                 .map(c -> price(c, chain.underlyingPrice(), timeToExpiry))
@@ -141,9 +155,12 @@ class DirectionalStrategySelector {
                 new RecommendationRationale.Pricing(selected.width(), selected.entryDebit(),
                         selected.breakeven(), pop, selected.maxProfit(), selected.maxLoss(),
                         riskReward, rawEv),
-                null);
+                null,
+                null,
+                null,
+                warnings);
 
-        return new CandidateSelection(Optional.of(new RecommendationCandidate(symbol, strategy, signal, regime, expiry.get(),
+        return new CandidateSelection(Optional.of(new RecommendationCandidate(symbol, strategy, signal, regime, selectedExpiry,
                 selected.legs(), selected.entryDebit(), pop, selected.maxProfit(), selected.maxLoss(),
                 riskReward, score, 0, rationale)), List.copyOf(rejections));
     }
@@ -305,11 +322,17 @@ class DirectionalStrategySelector {
                 target, 0.0, chosen.absDelta(), 0.0);
     }
 
-    private Optional<LocalDate> selectExpiry(OptionChain chain, LocalDate today,
-                                             EngineConfig.IntRange target,
-                                             EngineConfig.IntRange window) {
+    private ExpirySelection selectExpiry(String symbol,
+                                         StrategyType strategy,
+                                         OptionChain chain,
+                                         LocalDate today,
+                                         EngineConfig.IntRange target,
+                                         EngineConfig.IntRange window,
+                                         EngineConfig config,
+                                         List<GuardrailRejection> rejections,
+                                         List<RecommendationRationale.Warning> warnings) {
         double targetMid = 0.5 * (target.min() + target.max());
-        return chain.contracts().stream()
+        List<LocalDate> expiries = chain.contracts().stream()
                 .map(OptionContract::expiration)
                 .distinct()
                 .filter(e -> e.isAfter(today))
@@ -317,9 +340,29 @@ class DirectionalStrategySelector {
                     long dte = ChronoUnit.DAYS.between(today, e);
                     return dte >= window.min() && dte <= window.max();
                 })
-                .min(Comparator
+                .sorted(Comparator
                         .comparingDouble((LocalDate e) -> Math.abs(ChronoUnit.DAYS.between(today, e) - targetMid))
-                        .thenComparing(Comparator.naturalOrder()));
+                        .thenComparing(Comparator.naturalOrder()))
+                .toList();
+        if (expiries.isEmpty()) {
+            return new ExpirySelection(Optional.empty(), false);
+        }
+        for (LocalDate expiry : expiries) {
+            if (!config.filters().avoidEarnings()) {
+                return new ExpirySelection(Optional.of(expiry), true);
+            }
+            EarningsCheck check = earningsCalendar.check(symbol, today, expiry);
+            if (check.status() == EarningsCheck.Status.SPANS_EARNINGS) {
+                rejections.add(new GuardrailRejection(symbol, strategy, GuardrailReason.EARNINGS_SPANS_EXPIRY,
+                        "expiration %s spans earnings date %s".formatted(expiry, check.earningsDate())));
+                continue;
+            }
+            if (check.status() == EarningsCheck.Status.UNAVAILABLE) {
+                warnings.add(RecommendationRationale.Warning.earningsCalendarUnavailable());
+            }
+            return new ExpirySelection(Optional.of(expiry), true);
+        }
+        return new ExpirySelection(Optional.empty(), true);
     }
 
     private Optional<PricedContract> price(OptionContract contract, double spot, double timeToExpiry) {
@@ -442,6 +485,9 @@ class DirectionalStrategySelector {
             double shortDeltaTarget,
             double selectedLongDelta,
             double selectedShortDelta) {
+    }
+
+    private record ExpirySelection(Optional<LocalDate> expiry, boolean hadWindowExpiry) {
     }
 
     private record PricedContract(OptionContract contract, double iv, double delta, double mid,
