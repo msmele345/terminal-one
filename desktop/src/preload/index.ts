@@ -111,7 +111,7 @@ export interface PriceHistory {
 
 export type Direction = 'BULLISH' | 'BEARISH' | 'NEUTRAL'
 export type VolatilityRegime = 'LOW' | 'NORMAL' | 'HIGH'
-// Phase 5: the full §2 directional matrix (income overlays arrive in Phase 6)
+// Phase 6 begins adding income overlays on top of the full §2 directional matrix.
 export type StrategyType =
   | 'BULL_CALL_DEBIT_SPREAD'
   | 'BEAR_PUT_DEBIT_SPREAD'
@@ -119,6 +119,8 @@ export type StrategyType =
   | 'BEAR_CALL_CREDIT_SPREAD'
   | 'LONG_CALL'
   | 'LONG_PUT'
+  | 'COVERED_CALL'
+  | 'CASH_SECURED_PUT'
 
 export interface RecommendationLeg {
   action: string // 'BUY' | 'SELL'
@@ -176,6 +178,25 @@ export interface RecommendationRationale {
     portfolioValue: number
     perTradeRiskPct: number
     riskAmount: number
+  } | null
+  // Phase 6 AC1: income-overlay mechanics such as a covered-call upside cap.
+  incomeOverlay?: {
+    label: string
+    note: string
+    heldShares: number
+    contracts: number
+    capStrike: number
+    premiumPerShare: number
+    cappedUpsidePerContract: number
+  } | null
+  // Phase 6 AC2: cash-secured-put entry suggestion, flagged for required collateral.
+  entrySuggestion?: {
+    label: string
+    note: string
+    contracts: number
+    strike: number
+    premiumPerShare: number
+    requiredCapital: number
   } | null
 }
 

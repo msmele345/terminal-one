@@ -61,6 +61,7 @@ class EngineRunControllerTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 7, 1);
     private static final Instant AS_OF = TODAY.atTime(20, 0).toInstant(ZoneOffset.UTC);
     private static final LocalDate EXPIRY = LocalDate.of(2026, 8, 21);
+    private static final LocalDate INCOME_EXPIRY = TODAY.plusDays(38);
 
     private final OptionAnalytics analytics = new BlackScholesOptionAnalytics();
 
@@ -226,11 +227,85 @@ class EngineRunControllerTest {
         assertThat(recommendations.findAll()).hasSize(3);
     }
 
+    @Test
+    void neutralHighIvUnderlyingWithTwoHundredSharesProducesCoveredCallSizedToHeldShares() throws Exception {
+        addStock("MSFT", 200, "100.00");
+        seedHighIvRankHistory("MSFT");
+        when(marketData.getDailyBars("MSFT")).thenReturn(flatHistory("MSFT"));
+        when(marketData.getChain("MSFT")).thenReturn(highIvIncomeCallChain("MSFT"));
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(1)))
+                .andExpect(jsonPath("$.recommendations[0].symbol").value("MSFT"))
+                .andExpect(jsonPath("$.recommendations[0].strategy").value("COVERED_CALL"))
+                .andExpect(jsonPath("$.recommendations[0].direction").value("NEUTRAL"))
+                .andExpect(jsonPath("$.recommendations[0].regime").value("HIGH"))
+                .andExpect(jsonPath("$.recommendations[0].expiry").value(INCOME_EXPIRY.toString()))
+                .andExpect(jsonPath("$.recommendations[0].contracts").value(2))
+                .andExpect(jsonPath("$.recommendations[0].legs", hasSize(1)))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].action").value("SELL"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].callPut").value("CALL"))
+                .andExpect(jsonPath("$.recommendations[0].rationale.selection.shortDeltaTarget").value(0.30))
+                .andExpect(jsonPath("$.recommendations[0].rationale.sizing.contracts").value(2))
+                .andExpect(jsonPath("$.recommendations[0].rationale.incomeOverlay.label")
+                        .value("CAPS_UPSIDE_ABOVE_STRIKE"));
+
+        assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
+            assertThat(saved.getStrategy()).isEqualTo(StrategyType.COVERED_CALL);
+            assertThat(saved.getContracts()).isEqualTo(2);
+            assertThat(saved.getRationale()).contains("CAPS_UPSIDE_ABOVE_STRIKE");
+        });
+    }
+
+    @Test
+    void neutralHighIvUnderlyingWithFewerThanOneHundredSharesProducesACashSecuredPutInstead() throws Exception {
+        addStock("MSFT", 99, "100.00"); // < 100 shares → covered call ineligible, CSP is the §2 "else"
+        seedHighIvRankHistory("MSFT");
+        when(marketData.getDailyBars("MSFT")).thenReturn(flatHistory("MSFT"));
+        when(marketData.getChain("MSFT")).thenReturn(highIvIncomePutChain("MSFT"));
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(1)))
+                .andExpect(jsonPath("$.recommendations[0].symbol").value("MSFT"))
+                .andExpect(jsonPath("$.recommendations[0].strategy").value("CASH_SECURED_PUT"))
+                .andExpect(jsonPath("$.recommendations[0].direction").value("NEUTRAL"))
+                .andExpect(jsonPath("$.recommendations[0].regime").value("HIGH"))
+                .andExpect(jsonPath("$.recommendations[0].expiry").value(INCOME_EXPIRY.toString()))
+                .andExpect(jsonPath("$.recommendations[0].contracts").value(1))
+                .andExpect(jsonPath("$.recommendations[0].legs", hasSize(1)))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].action").value("SELL"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].callPut").value("PUT"))
+                .andExpect(jsonPath("$.recommendations[0].rationale.selection.shortDeltaTarget").value(0.30))
+                .andExpect(jsonPath("$.recommendations[0].rationale.entrySuggestion.label")
+                        .value("REQUIRES_CASH_COLLATERAL"))
+                .andExpect(jsonPath("$.recommendations[0].rationale.entrySuggestion.requiredCapital").isNumber());
+
+        assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
+            assertThat(saved.getStrategy()).isEqualTo(StrategyType.CASH_SECURED_PUT);
+            assertThat(saved.getContracts()).isEqualTo(1);
+            assertThat(saved.getRationale()).contains("REQUIRES_CASH_COLLATERAL");
+        });
+    }
+
     private void seedNormalIvRankHistory(String symbol) {
         for (int i = 0; i < 60; i++) {
             double atmIv = 0.20 + (0.20 * i / 59.0);
             ivHistory.save(new IvHistory(symbol, TODAY.minusDays(60 - i), atmIv,
                     100.0, 100.0, EXPIRY, AS_OF));
+        }
+    }
+
+    private void seedHighIvRankHistory(String symbol) {
+        for (int i = 0; i < 60; i++) {
+            double atmIv = 0.20 + (0.20 * i / 59.0);
+            ivHistory.save(new IvHistory(symbol, TODAY.minusDays(60 - i), atmIv,
+                    100.0, 100.0, INCOME_EXPIRY, AS_OF));
         }
     }
 
@@ -265,6 +340,16 @@ class EngineRunControllerTest {
         return new PriceHistory(symbol, AS_OF, true, bars);
     }
 
+    private PriceHistory flatHistory(String symbol) {
+        List<PriceBar> bars = new ArrayList<>();
+        LocalDate start = TODAY.minusDays(119);
+        for (int i = 0; i < 120; i++) {
+            bars.add(new PriceBar(start.plusDays(i), 100.0, 100.5,
+                    99.5, 100.0, 1_000_000 + i));
+        }
+        return new PriceHistory(symbol, AS_OF, true, bars);
+    }
+
     /** Puts at and below spot only, so the long leg pins to the ATM 100 strike in every band. */
     private OptionChain putChain(String symbol) {
         double spot = 100.0;
@@ -289,12 +374,45 @@ class EngineRunControllerTest {
                 pricedContract(symbol, CallPut.CALL, 115.0, spot, sigma)));
     }
 
+    private OptionChain highIvIncomeCallChain(String symbol) {
+        double spot = 100.0;
+        double sigma = 0.45;
+        return new OptionChain(symbol, spot, AS_OF, true, List.of(
+                pricedContract(symbol, CallPut.CALL, 100.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.CALL, 105.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.CALL, 110.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.CALL, 115.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.CALL, 120.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.CALL, 125.0, spot, sigma, INCOME_EXPIRY)));
+    }
+
+    /** ATM call (for the ATM-IV read) plus a put ladder below spot for the CSP short strike.
+     *  σ=0.35 still ranks HIGH vs the seeded 0.20–0.40 history, but keeps the 0.30Δ put's
+     *  POP above the 0.65 credit floor. */
+    private OptionChain highIvIncomePutChain(String symbol) {
+        double spot = 100.0;
+        double sigma = 0.35;
+        return new OptionChain(symbol, spot, AS_OF, true, List.of(
+                pricedContract(symbol, CallPut.CALL, 100.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 100.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 95.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 90.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 85.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 80.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 75.0, spot, sigma, INCOME_EXPIRY)));
+    }
+
     private OptionContract pricedContract(String symbol, CallPut type, double strike, double spot,
             double sigma) {
-        double t = ChronoUnit.DAYS.between(TODAY, EXPIRY) / 365.0;
+        return pricedContract(symbol, type, strike, spot, sigma, EXPIRY);
+    }
+
+    private OptionContract pricedContract(String symbol, CallPut type, double strike, double spot,
+            double sigma, LocalDate expiry) {
+        double t = ChronoUnit.DAYS.between(TODAY, expiry) / 365.0;
         double price = analytics.value(new OptionInput(spot, strike, t, 0.04, 0.0, sigma, type)).price();
         double bid = Math.max(0.01, price - 0.02);
         double ask = Math.max(bid + 0.02, price + 0.02);
-        return new OptionContract(symbol + "-" + type + "-" + strike, type, strike, EXPIRY, bid, ask, 1_000);
+        return new OptionContract(symbol + "-" + type + "-" + strike, type, strike, expiry, bid, ask, 1_000);
     }
 }

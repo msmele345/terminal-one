@@ -34,11 +34,15 @@ public class RecommendationEngine {
     private final TechnicalSignalCalculator signals;
     private final VolatilityRegimeCalculator regimes;
     private final DirectionalStrategySelector strategySelector;
+    private final IncomeOverlaySelector incomeOverlaySelector;
     private final RecommendationRepository recommendations;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     private static final Logger logger = LoggerFactory.getLogger(RecommendationEngine.class);
+
+    /** A covered call needs one round lot of the underlying (§2 eligibility). */
+    private static final int SHARES_PER_LOT = 100;
 
     public RecommendationEngine(EngineConfigProvider configProvider,
             PositionSource positions,
@@ -46,6 +50,7 @@ public class RecommendationEngine {
             TechnicalSignalCalculator signals,
             VolatilityRegimeCalculator regimes,
             DirectionalStrategySelector strategySelector,
+            IncomeOverlaySelector incomeOverlaySelector,
             RecommendationRepository recommendations,
             ObjectMapper objectMapper,
             Clock clock) {
@@ -55,6 +60,7 @@ public class RecommendationEngine {
         this.signals = signals;
         this.regimes = regimes;
         this.strategySelector = strategySelector;
+        this.incomeOverlaySelector = incomeOverlaySelector;
         this.recommendations = recommendations;
         this.objectMapper = objectMapper;
         this.clock = clock;
@@ -71,7 +77,7 @@ public class RecommendationEngine {
         // underlyings, not the first N symbols encountered.
         List<RecommendationCandidate> survivors = new ArrayList<>();
         for (String symbol : symbolsFor(request)) {
-            sizeCandidate(symbol, active, portfolioValue).ifPresent(survivors::add);
+            candidateForSymbol(symbol, active, portfolioValue).ifPresent(survivors::add);
         }
         List<RecommendationCandidate> ranked = CandidateRanker.rank(survivors, config.ranking());
 
@@ -83,8 +89,8 @@ public class RecommendationEngine {
         return new EngineRunResponse(emitted);
     }
 
-    private java.util.Optional<RecommendationCandidate> sizeCandidate(String symbol, ActiveEngineConfig active,
-                                                                       double portfolioValue) {
+    private java.util.Optional<RecommendationCandidate> candidateForSymbol(String symbol, ActiveEngineConfig active,
+                                                                           double portfolioValue) {
         EngineConfig config = active.config();
         PriceHistory history = safe(() -> marketData.getDailyBars(symbol));
         DirectionSignal signal = signals.calculate(history, config.signal());
@@ -94,6 +100,17 @@ public class RecommendationEngine {
         java.util.Optional<StrategyType> strategy = DirectionalStrategyMatrix.select(
                 signal.direction(), regime.regime(), signal.conviction(), config.conviction());
         if (strategy.isEmpty()) {
+            if (signal.direction() == Direction.NEUTRAL && regime.regime() == VolatilityRegime.HIGH) {
+                // §2 NEUTRAL × HIGH IV: a covered call when a lot is held, else a
+                // cash-secured put entry suggestion (flagged for required capital).
+                int held = heldShares(symbol);
+                if (held >= SHARES_PER_LOT) {
+                    return incomeOverlaySelector.selectCoveredCall(symbol, signal, regime, chain, config,
+                            held, portfolioValue);
+                }
+                return incomeOverlaySelector.selectCashSecuredPut(symbol, signal, regime, chain, config,
+                        portfolioValue);
+            }
             return java.util.Optional.empty();
         }
 
@@ -121,6 +138,15 @@ public class RecommendationEngine {
                 sizing.contracts(), unsized.rationale().withSizing(rationaleSizing)));
     }
 
+    private int heldShares(String symbol) {
+        String normalized = normalize(symbol);
+        return (int) Math.floor(positions.listStocks().stream()
+                .filter(stock -> normalize(stock.getSymbol()).equals(normalized))
+                .mapToDouble(stock -> stock.getQuantity().doubleValue())
+                .filter(quantity -> quantity > 0.0)
+                .sum());
+    }
+
     /**
      * The portfolio's total absolute-cost basis — the deterministic size base for §7.
      * Stocks contribute {@code |qty × costBasis|}; options contribute
@@ -139,16 +165,20 @@ public class RecommendationEngine {
     }
 
     private Recommendation toEntity(RecommendationCandidate candidate, int configVersion) {
-        // "Long" columns hold the bought leg, "short" the sold one; long
-        // single-leg structures (LONG_CALL / LONG_PUT) have no sold leg.
+        // Existing columns separate bought and sold option legs. Directional
+        // long-single structures have no sold leg; covered calls have no bought
+        // option leg because the stock shares are already held in the portfolio.
         RecommendationLeg bought = candidate.legs().stream()
                 .filter(l -> "BUY".equals(l.action()))
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException("candidate has no bought leg"));
+                .orElse(null);
         RecommendationLeg sold = candidate.legs().stream()
                 .filter(l -> "SELL".equals(l.action()))
                 .findFirst()
                 .orElse(null);
+        if (bought == null && sold == null) {
+            throw new IllegalStateException("candidate has no option legs");
+        }
         return new Recommendation(
                 candidate.symbol(),
                 candidate.strategy(),
@@ -158,8 +188,8 @@ public class RecommendationEngine {
                 RecommendationStatus.PAPER,
                 configVersion,
                 candidate.expiry(),
-                bought.optionSymbol(),
-                bought.strike(),
+                bought == null ? null : bought.optionSymbol(),
+                bought == null ? null : bought.strike(),
                 sold == null ? null : sold.optionSymbol(),
                 sold == null ? null : sold.strike(),
                 candidate.entryDebit(),

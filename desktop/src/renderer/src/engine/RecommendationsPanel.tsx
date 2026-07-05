@@ -78,6 +78,12 @@ function RecommendationCard({ rec }: { rec: Recommendation }): JSX.Element {
           <span className="tag">
             {rec.direction} · {rec.regime} IV
           </span>
+          {rec.rationale.incomeOverlay != null && (
+            <span className="tag">Caps upside above strike</span>
+          )}
+          {rec.rationale.entrySuggestion != null && (
+            <span className="tag">Requires cash collateral</span>
+          )}
         </div>
         <div className="rec-conviction">
           <span className="stat-label">Conviction</span>
@@ -170,6 +176,31 @@ function Rationale({ rationale }: { rationale: RecommendationRationale }): JSX.E
           <Metric label="Per-trade risk %" value={pct(rationale.sizing.perTradeRiskPct)} />
         </RationaleGroup>
       )}
+
+      {rationale.incomeOverlay != null && (
+        <RationaleGroup title="Income Overlay">
+          <Metric label="Label" value={formatLabel(rationale.incomeOverlay.label)} />
+          <Metric label="Held shares" value={String(rationale.incomeOverlay.heldShares)} />
+          <Metric label="Cap strike" value={money(rationale.incomeOverlay.capStrike)} />
+          <Metric label="Premium / share" value={money(rationale.incomeOverlay.premiumPerShare)} />
+          <Metric
+            label="Capped upside / contract"
+            value={money(rationale.incomeOverlay.cappedUpsidePerContract)}
+          />
+          <p className="muted rationale-reason">{rationale.incomeOverlay.note}</p>
+        </RationaleGroup>
+      )}
+
+      {rationale.entrySuggestion != null && (
+        <RationaleGroup title="Entry Suggestion">
+          <Metric label="Label" value={formatLabel(rationale.entrySuggestion.label)} />
+          <Metric label="Contracts" value={String(rationale.entrySuggestion.contracts)} />
+          <Metric label="Put strike" value={money(rationale.entrySuggestion.strike)} />
+          <Metric label="Premium / share" value={money(rationale.entrySuggestion.premiumPerShare)} />
+          <Metric label="Required capital" value={money(rationale.entrySuggestion.requiredCapital)} />
+          <p className="muted rationale-reason">{rationale.entrySuggestion.note}</p>
+        </RationaleGroup>
+      )}
     </div>
   )
 }
@@ -221,6 +252,15 @@ function pct(fraction: number): string {
 
 function strategyLabel(strategy: string): string {
   return strategy
+    .toLowerCase()
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+// Snake-cased engine labels (CAPS_UPSIDE_ABOVE_STRIKE, REQUIRES_CASH_COLLATERAL) → Title Case.
+function formatLabel(label: string): string {
+  return label
     .toLowerCase()
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

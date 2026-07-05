@@ -87,6 +87,21 @@ class VolatilityRegimeCalculatorTest {
         assertThat(result.reason()).contains("IV history 59/60");
     }
 
+    @Test
+    void unavailableIvRankAndBollingerFallbackDefaultsToNormalWithDiagnostic() {
+        VolatilityRegimeCalculator calculator = calculator();
+        when(ivHistoryRepository.findBySymbolOrderByAsOfDateAsc("AAPL")).thenReturn(List.of());
+
+        VolatilityRegimeResult result = calculator.calculate(
+                "AAPL", chainPricedAt(0.26), quietHistory(10), config.regime());
+
+        assertThat(result.regime()).isEqualTo(VolatilityRegime.NORMAL);
+        assertThat(result.currentIv()).isCloseTo(0.26, within(1e-3));
+        assertThat(result.reason()).contains("VOL_REGIME_UNAVAILABLE");
+        assertThat(result.reason()).contains("defaulting NORMAL");
+        assertThat(result.reason()).contains("Bollinger fallback needs at least 21 usable bars");
+    }
+
     private VolatilityRegimeCalculator calculator() {
         return new VolatilityRegimeCalculator(
                 ivHistoryRepository, analytics, Clock.fixed(AS_OF, ZoneOffset.UTC));

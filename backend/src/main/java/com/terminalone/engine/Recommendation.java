@@ -51,10 +51,11 @@ public class Recommendation {
     @Column(nullable = false)
     private LocalDate expiry;
 
-    @Column(name = "long_option_symbol", nullable = false, length = 64)
+    /** Null for covered-call overlays, which sell a call against already-held shares. */
+    @Column(name = "long_option_symbol", length = 64)
     private String longOptionSymbol;
 
-    @Column(name = "long_strike", nullable = false, precision = 19, scale = 4)
+    @Column(name = "long_strike", precision = 19, scale = 4)
     private BigDecimal longStrike;
 
     /** Null for long single-leg structures (LONG_CALL / LONG_PUT), which have no sold leg. */
@@ -106,7 +107,7 @@ public class Recommendation {
                    int configVersion,
                    LocalDate expiry,
                    String longOptionSymbol,
-                   double longStrike,
+                   Double longStrike,
                    String shortOptionSymbol,
                    Double shortStrike,
                    double entryDebit,
@@ -127,7 +128,7 @@ public class Recommendation {
         this.configVersion = configVersion;
         this.expiry = expiry;
         this.longOptionSymbol = longOptionSymbol;
-        this.longStrike = decimal(longStrike);
+        this.longStrike = longStrike == null ? null : decimal(longStrike);
         this.shortOptionSymbol = shortOptionSymbol;
         this.shortStrike = shortStrike == null ? null : decimal(shortStrike);
         this.entryDebit = decimal(entryDebit);
