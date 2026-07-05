@@ -198,6 +198,11 @@ export interface RecommendationRationale {
     premiumPerShare: number
     requiredCapital: number
   } | null
+  // Phase 6 AC4: non-blocking caveats such as unavailable earnings screening.
+  warnings?: {
+    label: string
+    note: string
+  }[]
 }
 
 export interface Recommendation {
@@ -220,8 +225,18 @@ export interface Recommendation {
   rationale: RecommendationRationale
 }
 
+// Phase 6 AC3 (§2): an explicit "no trade" reason for one underlying. The engine
+// abstains rather than drop silently — reason is a stable code (WEAK_SIGNAL,
+// NO_MARKET_DATA, NO_VALID_EXPIRY, RISK_TOO_LARGE, …).
+export interface EngineAbstention {
+  symbol: string
+  reason: string
+  detail: string
+}
+
 export interface EngineRunResult {
   recommendations: Recommendation[]
+  abstentions?: EngineAbstention[]
 }
 
 // Request shape sent to the backend; option-only fields omitted for stock.

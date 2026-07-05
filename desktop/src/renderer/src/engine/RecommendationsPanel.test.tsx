@@ -257,6 +257,69 @@ describe('RecommendationsPanel', () => {
     expect(within(rationale).getByText(/does not track your cash balance/i)).toBeInTheDocument()
   })
 
+  it('flags recommendations when earnings were not screened', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        recommendations: [
+          sampleRec({
+            rationale: {
+              ...sampleRec().rationale,
+              warnings: [
+                {
+                  label: 'EARNINGS_CALENDAR_UNAVAILABLE',
+                  note: 'Earnings calendar unavailable; expiry was not screened for earnings.'
+                }
+              ]
+            }
+          })
+        ]
+      }
+    }))
+    installEngineApi(run)
+
+    render(<RecommendationsPanel />)
+    await user.click(screen.getByRole('button', { name: /run engine/i }))
+
+    const card = await screen.findByTestId('recommendation')
+    expect(within(card).getByText(/earnings not screened/i)).toBeInTheDocument()
+
+    await user.click(within(card).getByRole('button', { name: /why/i }))
+    const rationale = within(card).getByTestId('rationale')
+    expect(within(rationale).getByRole('heading', { name: /warnings/i })).toBeInTheDocument()
+    expect(within(rationale).getByText(/not screened for earnings/i)).toBeInTheDocument()
+  })
+
+  it('surfaces the explicit abstain reasons the engine returns', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        recommendations: [],
+        abstentions: [
+          {
+            symbol: 'TSLA',
+            reason: 'WEAK_SIGNAL',
+            detail: 'Signal NEUTRAL (direction score -0.180 within the ±threshold); no directional edge'
+          }
+        ]
+      }
+    }))
+    installEngineApi(run)
+
+    render(<RecommendationsPanel />)
+    await user.click(screen.getByRole('button', { name: /run engine/i }))
+
+    const abstentions = await screen.findByTestId('engine-abstentions')
+    expect(within(abstentions).getByText('TSLA')).toBeInTheDocument()
+    expect(within(abstentions).getByText(/weak signal/i)).toBeInTheDocument()
+    expect(within(abstentions).getByText(/no directional edge/i)).toBeInTheDocument()
+    // The reasons explain the empty result, so the generic empty-state is suppressed.
+    expect(screen.queryByTestId('engine-empty')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
+  })
+
   it('renders a clean abstain state when the engine returns no recommendations', async () => {
     const user = userEvent.setup()
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [] } }))

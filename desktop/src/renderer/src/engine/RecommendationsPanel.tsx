@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Recommendation, RecommendationRationale } from '../../../preload'
+import type { EngineAbstention, Recommendation, RecommendationRationale } from '../../../preload'
 
 type RunState = 'idle' | 'running' | 'done' | 'error'
 
@@ -9,6 +9,7 @@ type RunState = 'idle' | 'running' | 'done' | 'error'
 export function RecommendationsPanel(): JSX.Element {
   const [state, setState] = useState<RunState>('idle')
   const [recs, setRecs] = useState<Recommendation[]>([])
+  const [abstentions, setAbstentions] = useState<EngineAbstention[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const run = async (): Promise<void> => {
@@ -17,6 +18,7 @@ export function RecommendationsPanel(): JSX.Element {
     const res = await window.api.engine.run()
     if (res.ok) {
       setRecs(res.data.recommendations)
+      setAbstentions(res.data.abstentions ?? [])
       setState('done')
     } else {
       setError(res.error)
@@ -46,7 +48,7 @@ export function RecommendationsPanel(): JSX.Element {
 
       {state === 'running' && <p className="muted">Running the engine…</p>}
 
-      {state === 'done' && recs.length === 0 && (
+      {state === 'done' && recs.length === 0 && abstentions.length === 0 && (
         <div className="empty-state" data-testid="engine-empty">
           <p className="empty-glyph">✧</p>
           <p>No trade.</p>
@@ -63,7 +65,32 @@ export function RecommendationsPanel(): JSX.Element {
           ))}
         </div>
       )}
+
+      {state === 'done' && abstentions.length > 0 && (
+        <Abstentions abstentions={abstentions} />
+      )}
     </section>
+  )
+}
+
+// Phase 6 AC3: the engine returns an explicit reason for every underlying it
+// passed on, so "no trade" is auditable rather than a silent gap.
+function Abstentions({ abstentions }: { abstentions: EngineAbstention[] }): JSX.Element {
+  return (
+    <div className="abstentions" data-testid="engine-abstentions">
+      <p className="muted abstentions-title">
+        No trade on {abstentions.length} underlying{abstentions.length > 1 ? 's' : ''} — here&apos;s why:
+      </p>
+      <ul className="abstention-list">
+        {abstentions.map((a) => (
+          <li key={a.symbol} className="abstention" data-testid="abstention">
+            <span className="neon abstention-symbol">{a.symbol}</span>
+            <span className="tag">{formatLabel(a.reason)}</span>
+            <span className="muted abstention-detail">{a.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -83,6 +110,9 @@ function RecommendationCard({ rec }: { rec: Recommendation }): JSX.Element {
           )}
           {rec.rationale.entrySuggestion != null && (
             <span className="tag">Requires cash collateral</span>
+          )}
+          {hasWarning(rec, 'EARNINGS_CALENDAR_UNAVAILABLE') && (
+            <span className="tag warn">Earnings not screened</span>
           )}
         </div>
         <div className="rec-conviction">
@@ -201,6 +231,17 @@ function Rationale({ rationale }: { rationale: RecommendationRationale }): JSX.E
           <p className="muted rationale-reason">{rationale.entrySuggestion.note}</p>
         </RationaleGroup>
       )}
+
+      {rationale.warnings != null && rationale.warnings.length > 0 && (
+        <RationaleGroup title="Warnings">
+          {rationale.warnings.map((warning) => (
+            <div key={warning.label}>
+              <Metric label="Label" value={formatLabel(warning.label)} />
+              <p className="muted rationale-reason">{warning.note}</p>
+            </div>
+          ))}
+        </RationaleGroup>
+      )}
     </div>
   )
 }
@@ -256,6 +297,10 @@ function strategyLabel(strategy: string): string {
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ')
+}
+
+function hasWarning(rec: Recommendation, label: string): boolean {
+  return rec.rationale.warnings?.some((warning) => warning.label === label) ?? false
 }
 
 // Snake-cased engine labels (CAPS_UPSIDE_ABOVE_STRIKE, REQUIRES_CASH_COLLATERAL) → Title Case.

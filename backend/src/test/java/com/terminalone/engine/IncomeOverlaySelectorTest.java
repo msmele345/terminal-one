@@ -275,6 +275,37 @@ class IncomeOverlaySelectorTest {
     }
 
     @Test
+    void flagsIncomeOverlayWhenEarningsCalendarIsUnavailable() {
+        RecommendationCandidate candidate = selector.selectCoveredCall("MSFT",
+                signal(Direction.NEUTRAL, 30), regimeResult(VolatilityRegime.HIGH),
+                incomeCallChain("MSFT"), config, 200, 40_000.0).orElseThrow();
+
+        assertThat(candidate.rationale().warnings())
+                .extracting(RecommendationRationale.Warning::label)
+                .containsExactly("EARNINGS_CALENDAR_UNAVAILABLE");
+        assertThat(candidate.rationale().warnings().get(0).note())
+                .contains("was not screened for earnings");
+    }
+
+    @Test
+    void coveredCallSkipsKnownEarningsSpanningIncomeExpiry() {
+        LocalDate preEarningsExpiry = TODAY.plusDays(25);
+        LocalDate earnings = TODAY.plusDays(30);
+        IncomeOverlaySelector selectorWithCalendar = new IncomeOverlaySelector(
+                analytics,
+                Clock.fixed(AS_OF, ZoneOffset.UTC),
+                (symbol, asOf, expiry) -> EarningsCheck.fromKnownDate(earnings, asOf, expiry));
+
+        RecommendationCandidate candidate = selectorWithCalendar.selectCoveredCall("MSFT",
+                signal(Direction.NEUTRAL, 30), regimeResult(VolatilityRegime.HIGH),
+                incomeCallChain("MSFT", preEarningsExpiry, INCOME_EXPIRY), config, 200, 40_000.0)
+                .orElseThrow();
+
+        assertThat(candidate.expiry()).isEqualTo(preEarningsExpiry);
+        assertThat(candidate.rationale().warnings()).isEmpty();
+    }
+
+    @Test
     void cashSecuredPutAbstainsWhenNoExpiryFallsInsideTheIncomeWindow() {
         OptionChain chain = new OptionChain("MSFT", SPOT, AS_OF, true, List.of(
                 priced(CallPut.PUT, 95.0, TODAY.plusDays(10), 1_000),
@@ -324,9 +355,15 @@ class IncomeOverlaySelectorTest {
 
     /** OTM+ATM calls, strikes 100–135 in $5 steps, at one in-window income expiry. */
     private OptionChain incomeCallChain(String symbol) {
+        return incomeCallChain(symbol, INCOME_EXPIRY);
+    }
+
+    private OptionChain incomeCallChain(String symbol, LocalDate... expiries) {
         List<OptionContract> contracts = new ArrayList<>();
-        for (double strike = 100.0; strike <= 135.0; strike += 5.0) {
-            contracts.add(priced(symbol, CallPut.CALL, strike, INCOME_EXPIRY, 1_000));
+        for (LocalDate expiry : expiries) {
+            for (double strike = 100.0; strike <= 135.0; strike += 5.0) {
+                contracts.add(priced(symbol, CallPut.CALL, strike, expiry, 1_000));
+            }
         }
         return new OptionChain(symbol, SPOT, AS_OF, true, contracts);
     }

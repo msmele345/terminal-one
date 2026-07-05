@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.TreeSet;
 
 @Service
@@ -74,10 +75,16 @@ public class RecommendationEngine {
 
         // Phase 5 AC6 (§8): collect every surviving sized candidate across the
         // portfolio, then rank them globally — top-N is decided across all
-        // underlyings, not the first N symbols encountered.
+        // underlyings, not the first N symbols encountered. Phase 6 AC3 (§2):
+        // every underlying that produces no trade contributes an explicit
+        // Abstention instead of being silently dropped.
         List<RecommendationCandidate> survivors = new ArrayList<>();
+        List<Abstention> abstentions = new ArrayList<>();
         for (String symbol : symbolsFor(request)) {
-            candidateForSymbol(symbol, active, portfolioValue).ifPresent(survivors::add);
+            switch (resolveSymbol(symbol, active, portfolioValue)) {
+                case Traded traded -> survivors.add(traded.candidate());
+                case Abstained abstained -> abstentions.add(abstained.abstention());
+            }
         }
         List<RecommendationCandidate> ranked = CandidateRanker.rank(survivors, config.ranking());
 
@@ -86,56 +93,109 @@ public class RecommendationEngine {
             Recommendation saved = recommendations.save(toEntity(candidate, active.version()));
             emitted.add(RecommendationResponse.from(saved, candidate));
         }
-        return new EngineRunResponse(emitted);
+        return new EngineRunResponse(emitted, abstentions);
     }
 
-    private java.util.Optional<RecommendationCandidate> candidateForSymbol(String symbol, ActiveEngineConfig active,
-                                                                           double portfolioValue) {
+    /**
+     * Resolve one underlying to either a sized candidate or an explicit abstain
+     * reason (strategy-matrix §2). The order of gates mirrors the matrix: no-data
+     * first, then the direction × regime cell (weak/neutral abstain or a HIGH-IV
+     * income overlay), then §6 guardrails and the §7 risk cap.
+     */
+    private SymbolOutcome resolveSymbol(String symbol, ActiveEngineConfig active, double portfolioValue) {
         EngineConfig config = active.config();
+
+        // §2 no-data abstain — source the chain first and never guess when it's missing.
+        OptionChain chain = safe(() -> marketData.getChain(symbol));
+        if (chain == null || chain.underlyingPrice() <= 0.0) {
+            return new Abstained(new Abstention(symbol, AbstainReason.NO_MARKET_DATA.name(),
+                    "Option chain / underlying price unavailable for " + symbol));
+        }
+
         PriceHistory history = safe(() -> marketData.getDailyBars(symbol));
         DirectionSignal signal = signals.calculate(history, config.signal());
-        OptionChain chain = safe(() -> marketData.getChain(symbol));
-
         VolatilityRegimeResult regime = regimes.calculate(symbol, chain, history, config.regime());
-        java.util.Optional<StrategyType> strategy = DirectionalStrategyMatrix.select(
+        Optional<StrategyType> strategy = DirectionalStrategyMatrix.select(
                 signal.direction(), regime.regime(), signal.conviction(), config.conviction());
+
         if (strategy.isEmpty()) {
+            // §2 NEUTRAL × HIGH IV → an income overlay (covered call when a lot is
+            // held, else a flagged cash-secured put entry). Every other empty cell
+            // is a weak/neutral directional signal → explicit WEAK_SIGNAL abstain.
             if (signal.direction() == Direction.NEUTRAL && regime.regime() == VolatilityRegime.HIGH) {
-                // §2 NEUTRAL × HIGH IV: a covered call when a lot is held, else a
-                // cash-secured put entry suggestion (flagged for required capital).
                 int held = heldShares(symbol);
-                if (held >= SHARES_PER_LOT) {
-                    return incomeOverlaySelector.selectCoveredCall(symbol, signal, regime, chain, config,
-                            held, portfolioValue);
-                }
-                return incomeOverlaySelector.selectCashSecuredPut(symbol, signal, regime, chain, config,
-                        portfolioValue);
+                Optional<RecommendationCandidate> income = held >= SHARES_PER_LOT
+                        ? incomeOverlaySelector.selectCoveredCall(symbol, signal, regime, chain, config,
+                                held, portfolioValue)
+                        : incomeOverlaySelector.selectCashSecuredPut(symbol, signal, regime, chain, config,
+                                portfolioValue);
+                return income.<SymbolOutcome>map(Traded::new).orElseGet(() -> new Abstained(
+                        new Abstention(symbol, AbstainReason.NO_QUALIFYING_CANDIDATE.name(),
+                                "No qualifying income overlay for " + symbol
+                                        + " (see engine log for the guardrail detail)")));
             }
-            return java.util.Optional.empty();
+            return new Abstained(new Abstention(symbol, AbstainReason.WEAK_SIGNAL.name(),
+                    weakSignalDetail(signal, config.conviction())));
         }
 
-        java.util.Optional<RecommendationCandidate> candidate = strategySelector.select(
+        CandidateSelection selection = strategySelector.selectWithRejections(
                 symbol, strategy.get(), signal, regime, chain, config);
-        if (candidate.isEmpty()) {
-            return java.util.Optional.empty();
+        if (selection.candidate().isEmpty()) {
+            return new Abstained(abstentionFromRejections(symbol, selection.rejections()));
         }
 
-        RecommendationCandidate unsized = candidate.get();
+        RecommendationCandidate unsized = selection.candidate().get();
         // Phase 5 AC5 (§7): cap defined risk to perTradeRiskPct of the portfolio.
         PositionSizer.Sizing sizing = PositionSizer.size(unsized.maxLoss(), portfolioValue,
                 config.sizing().perTradeRiskPct());
         if (sizing.abstain()) {
+            double budget = portfolioValue * config.sizing().perTradeRiskPct();
             logger.info("Rejected {} {} candidate: {} (max loss ${} exceeds ${} cap)",
                     unsized.symbol(), unsized.strategy(), PositionSizer.RISK_TOO_LARGE,
-                    unsized.maxLoss(), portfolioValue * config.sizing().perTradeRiskPct());
-            return java.util.Optional.empty();
+                    unsized.maxLoss(), budget);
+            return new Abstained(new Abstention(symbol, PositionSizer.RISK_TOO_LARGE,
+                    "max loss $%.2f exceeds the $%.2f per-trade cap".formatted(unsized.maxLoss(), budget)));
         }
 
         RecommendationRationale.Sizing rationaleSizing = new RecommendationRationale.Sizing(
                 sizing.contracts(), unsized.maxLoss(), portfolioValue,
                 config.sizing().perTradeRiskPct(), sizing.riskAmount());
-        return java.util.Optional.of(unsized.withSizing(
+        return new Traded(unsized.withSizing(
                 sizing.contracts(), unsized.rationale().withSizing(rationaleSizing)));
+    }
+
+    private static String weakSignalDetail(DirectionSignal signal, EngineConfig.Conviction conviction) {
+        if (signal.direction() == Direction.NEUTRAL) {
+            return "Signal NEUTRAL (direction score %.3f within the ±threshold); no directional edge"
+                    .formatted(signal.directionScore());
+        }
+        return "%s conviction %d below the trade floor of %d"
+                .formatted(signal.direction(), signal.conviction(), conviction.tradeFloor());
+    }
+
+    /**
+     * Bubble the terminal §6 guardrail reason up as the explicit abstention so the
+     * caller sees the precise cause (e.g. {@code NO_VALID_EXPIRY}); the detail is
+     * preserved. Falls back to {@code NO_QUALIFYING_CANDIDATE} if the selector
+     * returned empty without recording a specific reason.
+     */
+    private static Abstention abstentionFromRejections(String symbol, List<GuardrailRejection> rejections) {
+        if (rejections.isEmpty()) {
+            return new Abstention(symbol, AbstainReason.NO_QUALIFYING_CANDIDATE.name(),
+                    "No qualifying structure for " + symbol);
+        }
+        GuardrailRejection primary = rejections.get(rejections.size() - 1);
+        return new Abstention(symbol, primary.reason().name(), primary.detail());
+    }
+
+    /** One underlying resolves to exactly one of: a sized candidate, or an abstain reason. */
+    private sealed interface SymbolOutcome permits Traded, Abstained {
+    }
+
+    private record Traded(RecommendationCandidate candidate) implements SymbolOutcome {
+    }
+
+    private record Abstained(Abstention abstention) implements SymbolOutcome {
     }
 
     private int heldShares(String symbol) {

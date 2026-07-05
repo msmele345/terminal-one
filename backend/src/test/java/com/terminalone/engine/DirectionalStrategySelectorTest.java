@@ -478,6 +478,41 @@ class DirectionalStrategySelectorTest {
                 .contains(GuardrailReason.REWARD_RISK_BELOW_FLOOR);
     }
 
+    @Test
+    void skipsKnownEarningsSpanningExpiryAndUsesTheNextValidExpiry() {
+        LocalDate preEarningsExpiry = TODAY.plusDays(25);
+        LocalDate earnings = TODAY.plusDays(30);
+        OptionChain chain = putChainWithExpiries(preEarningsExpiry, CREDIT_EXPIRY);
+        DirectionalStrategySelector selectorWithCalendar = new DirectionalStrategySelector(
+                analytics,
+                Clock.fixed(AS_OF, ZoneOffset.UTC),
+                (symbol, asOf, expiry) -> EarningsCheck.fromKnownDate(earnings, asOf, expiry));
+
+        CandidateSelection selection = selectorWithCalendar.selectWithRejections("AAPL",
+                StrategyType.BULL_PUT_CREDIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.HIGH), chain, creditStructureConfig());
+
+        assertThat(selection.candidate()).isPresent();
+        assertThat(selection.candidate().orElseThrow().expiry()).isEqualTo(preEarningsExpiry);
+        assertThat(selection.candidate().orElseThrow().rationale().warnings()).isEmpty();
+        assertThat(selection.rejections())
+                .extracting(GuardrailRejection::reason)
+                .contains(GuardrailReason.EARNINGS_SPANS_EXPIRY);
+    }
+
+    @Test
+    void flagsCandidateWhenEarningsCalendarIsUnavailable() {
+        RecommendationCandidate candidate = selector.select("AAPL",
+                StrategyType.BULL_CALL_DEBIT_SPREAD, signal(Direction.BULLISH, 65),
+                regimeResult(VolatilityRegime.NORMAL), fullChain(), config).orElseThrow();
+
+        assertThat(candidate.rationale().warnings())
+                .extracting(RecommendationRationale.Warning::label)
+                .containsExactly("EARNINGS_CALENDAR_UNAVAILABLE");
+        assertThat(candidate.rationale().warnings().get(0).note())
+                .contains("was not screened for earnings");
+    }
+
     /**
      * Phase 5 AC6 (§8): the candidate score folds in the per-cell regimeFinable
      * factor — match (1.15) for credit↔HIGH / debit-long↔LOW, neutral (1.00) for
@@ -547,9 +582,9 @@ class DirectionalStrategySelectorTest {
     // chain those exact values won't reproduce, so each test pins the
     // *deterministic* claims the engine owns — the mapping, the delta targets,
     // the credit/debit economics identities, the regime-fit factor, and the
-    // sizing rule — not the illustrative prices. Examples B (WEAK_SIGNAL abstain)
-    // and C (Covered Call income overlay) depend on Phase 6 machinery and are
-    // encoded when that lands.
+    // sizing rule — not the illustrative prices. Examples B (WEAK_SIGNAL abstain,
+    // in RecommendationEngineTest) and C (Covered Call income overlay, in
+    // IncomeOverlaySelectorTest) live with their Phase 6 machinery.
 
     /**
      * §10 Example A — AAPL classic high-IV bullish credit spread. A BULLISH
@@ -686,6 +721,16 @@ class DirectionalStrategySelectorTest {
         List<OptionContract> contracts = new ArrayList<>();
         for (double strike = 80.0; strike <= 105.0; strike += 1.0) {
             contracts.add(priced(CallPut.PUT, strike, CREDIT_EXPIRY, 1_000));
+        }
+        return new OptionChain("AAPL", SPOT, AS_OF, true, contracts);
+    }
+
+    private OptionChain putChainWithExpiries(LocalDate... expiries) {
+        List<OptionContract> contracts = new ArrayList<>();
+        for (LocalDate expiry : expiries) {
+            for (double strike = 80.0; strike <= 105.0; strike += 5.0) {
+                contracts.add(priced(CallPut.PUT, strike, expiry, 1_000));
+            }
         }
         return new OptionChain("AAPL", SPOT, AS_OF, true, contracts);
     }
