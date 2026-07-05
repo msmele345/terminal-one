@@ -87,6 +87,9 @@ public class Recommendation {
     @Column(nullable = false)
     private int contracts;
 
+    @Column(name = "batch_run_id")
+    private Long batchRunId;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "jsonb")
     private String rationale;
@@ -119,6 +122,34 @@ public class Recommendation {
                    int contracts,
                    String rationale,
                    Instant createdAt) {
+        this(symbol, strategy, direction, regime, conviction, status, configVersion, expiry,
+                longOptionSymbol, longStrike, shortOptionSymbol, shortStrike, entryDebit,
+                probabilityOfProfit, maxProfit, maxLoss, riskReward, score, contracts,
+                rationale, createdAt, null);
+    }
+
+    Recommendation(String symbol,
+                   StrategyType strategy,
+                   Direction direction,
+                   VolatilityRegime regime,
+                   int conviction,
+                   RecommendationStatus status,
+                   int configVersion,
+                   LocalDate expiry,
+                   String longOptionSymbol,
+                   Double longStrike,
+                   String shortOptionSymbol,
+                   Double shortStrike,
+                   double entryDebit,
+                   double probabilityOfProfit,
+                   double maxProfit,
+                   double maxLoss,
+                   double riskReward,
+                   double score,
+                   int contracts,
+                   String rationale,
+                   Instant createdAt,
+                   Long batchRunId) {
         this.symbol = symbol;
         this.strategy = strategy;
         this.direction = direction;
@@ -138,6 +169,7 @@ public class Recommendation {
         this.riskReward = decimal(riskReward);
         this.score = decimal(score);
         this.contracts = contracts;
+        this.batchRunId = batchRunId;
         this.rationale = rationale;
         this.createdAt = createdAt;
     }
@@ -204,6 +236,10 @@ public class Recommendation {
 
     public int getContracts() {
         return contracts;
+    }
+
+    public Long getBatchRunId() {
+        return batchRunId;
     }
 
     public String getRationale() {

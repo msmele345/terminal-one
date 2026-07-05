@@ -56,6 +56,10 @@ app:
     # Daily ATM IV accumulation job (Phase 3 AC5): post US close (16:15 ET),
     # weekdays, in America/New_York. Spring cron: sec min hour dom mon dow.
     cron: ${IV_HISTORY_CRON:0 15 16 * * MON-FRI}
+  engine:
+    # Scheduled recommendation batch (Phase 6 AC5): post US close (16:30 ET),
+    # weekdays, in America/New_York. It runs the full engine over all underlyings.
+    eod-cron: ${ENGINE_EOD_CRON:0 30 16 * * MON-FRI}
 
 logging:
   level:

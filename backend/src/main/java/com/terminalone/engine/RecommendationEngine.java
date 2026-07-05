@@ -20,11 +20,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 
 @Service
 public class RecommendationEngine {
@@ -69,6 +72,20 @@ public class RecommendationEngine {
 
     @Transactional
     public EngineRunResponse run(EngineRunRequest request) {
+        return runInternal(request, null, snapshot -> {
+        });
+    }
+
+    @Transactional
+    public EngineRunResponse runEodBatch(Long batchRunId, Consumer<SignalSnapshot> signalSnapshotSink) {
+        Objects.requireNonNull(batchRunId, "batchRunId is required");
+        Objects.requireNonNull(signalSnapshotSink, "signalSnapshotSink is required");
+        return runInternal(new EngineRunRequest(null), batchRunId, signalSnapshotSink);
+    }
+
+    private EngineRunResponse runInternal(EngineRunRequest request,
+            Long batchRunId,
+            Consumer<SignalSnapshot> signalSnapshotSink) {
         ActiveEngineConfig active = configProvider.getActive();
         EngineConfig config = active.config();
         double portfolioValue = portfolioValueAtCost();
@@ -81,7 +98,7 @@ public class RecommendationEngine {
         List<RecommendationCandidate> survivors = new ArrayList<>();
         List<Abstention> abstentions = new ArrayList<>();
         for (String symbol : symbolsFor(request)) {
-            switch (resolveSymbol(symbol, active, portfolioValue)) {
+            switch (resolveSymbol(symbol, active, portfolioValue, batchRunId, signalSnapshotSink)) {
                 case Traded traded -> survivors.add(traded.candidate());
                 case Abstained abstained -> abstentions.add(abstained.abstention());
             }
@@ -90,7 +107,7 @@ public class RecommendationEngine {
 
         List<RecommendationResponse> emitted = new ArrayList<>();
         for (RecommendationCandidate candidate : ranked) {
-            Recommendation saved = recommendations.save(toEntity(candidate, active.version()));
+            Recommendation saved = recommendations.save(toEntity(candidate, active.version(), batchRunId));
             emitted.add(RecommendationResponse.from(saved, candidate));
         }
         return new EngineRunResponse(emitted, abstentions);
@@ -102,7 +119,11 @@ public class RecommendationEngine {
      * first, then the direction × regime cell (weak/neutral abstain or a HIGH-IV
      * income overlay), then §6 guardrails and the §7 risk cap.
      */
-    private SymbolOutcome resolveSymbol(String symbol, ActiveEngineConfig active, double portfolioValue) {
+    private SymbolOutcome resolveSymbol(String symbol,
+            ActiveEngineConfig active,
+            double portfolioValue,
+            Long batchRunId,
+            Consumer<SignalSnapshot> signalSnapshotSink) {
         EngineConfig config = active.config();
 
         // §2 no-data abstain — source the chain first and never guess when it's missing.
@@ -115,6 +136,7 @@ public class RecommendationEngine {
         PriceHistory history = safe(() -> marketData.getDailyBars(symbol));
         DirectionSignal signal = signals.calculate(history, config.signal());
         VolatilityRegimeResult regime = regimes.calculate(symbol, chain, history, config.regime());
+        captureSignalSnapshot(batchRunId, signalSnapshotSink, active.version(), symbol, signal, regime, chain);
         Optional<StrategyType> strategy = DirectionalStrategyMatrix.select(
                 signal.direction(), regime.regime(), signal.conviction(), config.conviction());
 
@@ -162,6 +184,27 @@ public class RecommendationEngine {
                 config.sizing().perTradeRiskPct(), sizing.riskAmount());
         return new Traded(unsized.withSizing(
                 sizing.contracts(), unsized.rationale().withSizing(rationaleSizing)));
+    }
+
+    private void captureSignalSnapshot(Long batchRunId,
+            Consumer<SignalSnapshot> signalSnapshotSink,
+            int configVersion,
+            String symbol,
+            DirectionSignal signal,
+            VolatilityRegimeResult regime,
+            OptionChain chain) {
+        if (batchRunId == null) {
+            return;
+        }
+        signalSnapshotSink.accept(SignalSnapshot.fromBatchRun(
+                batchRunId,
+                configVersion,
+                normalize(symbol),
+                signal,
+                regime,
+                chain,
+                LocalDate.now(clock),
+                clock.instant()));
     }
 
     private static String weakSignalDetail(DirectionSignal signal, EngineConfig.Conviction conviction) {
@@ -224,7 +267,7 @@ public class RecommendationEngine {
         return value;
     }
 
-    private Recommendation toEntity(RecommendationCandidate candidate, int configVersion) {
+    private Recommendation toEntity(RecommendationCandidate candidate, int configVersion, Long batchRunId) {
         // Existing columns separate bought and sold option legs. Directional
         // long-single structures have no sold leg; covered calls have no bought
         // option leg because the stock shares are already held in the portfolio.
@@ -260,7 +303,8 @@ public class RecommendationEngine {
                 candidate.score(),
                 candidate.contracts(),
                 writeRationale(candidate.rationale()),
-                Instant.now(clock));
+                Instant.now(clock),
+                batchRunId);
     }
 
     private List<String> symbolsFor(EngineRunRequest request) {
