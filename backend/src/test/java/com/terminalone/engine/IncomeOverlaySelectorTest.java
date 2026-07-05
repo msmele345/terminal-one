@@ -40,7 +40,9 @@ class IncomeOverlaySelectorTest {
     /** 38 DTE — inside the income window [25, 50] and nearest its target midpoint (37.5). */
     private static final LocalDate INCOME_EXPIRY = TODAY.plusDays(38);
     private static final double SPOT = 100.0;
-    private static final double HIGH_SIGMA = 0.45;
+    // Moderately-high IV: the ATM chain still ranks HIGH, but a 0.30Δ short put's
+    // true POP N(d₂) clears the 0.65 credit floor (at very high IV it dips under).
+    private static final double HIGH_SIGMA = 0.35;
 
     private final OptionAnalytics analytics = new BlackScholesOptionAnalytics();
     private final IncomeOverlaySelector selector = new IncomeOverlaySelector(
@@ -208,6 +210,105 @@ class IncomeOverlaySelectorTest {
                 .isEqualTo("CAPS_UPSIDE_ABOVE_STRIKE");
     }
 
+    // ---- Phase 6 AC2: cash-secured put entry suggestion ----
+
+    @Test
+    void sellsTheNearestThirtyDeltaPutAsAFlaggedCashSecuredEntrySuggestion() {
+        RecommendationCandidate candidate = selector.selectCashSecuredPut("MSFT",
+                signal(Direction.NEUTRAL, 30), regimeResult(VolatilityRegime.HIGH),
+                incomePutChain("MSFT"), config, 50_000.0).orElseThrow();
+
+        assertThat(candidate.strategy()).isEqualTo(StrategyType.CASH_SECURED_PUT);
+        assertThat(candidate.expiry()).isEqualTo(INCOME_EXPIRY);
+
+        // One sold put, no bought leg — a cash-secured entry.
+        assertThat(candidate.legs()).hasSize(1);
+        RecommendationLeg leg = candidate.legs().get(0);
+        assertThat(leg.action()).isEqualTo("SELL");
+        assertThat(leg.callPut()).isEqualTo(CallPut.PUT);
+        assertThat(leg.strike()).isLessThan(SPOT); // OTM put
+        assertThat(leg.strike()).isEqualTo(nearestDeltaPut(incomePutChain("MSFT")).strike());
+
+        // §4.4: target the 0.30Δ put; the sold delta lands near it.
+        RecommendationRationale.Selection sel = candidate.rationale().selection();
+        assertThat(sel.convictionBand()).isEqualTo("income");
+        assertThat(sel.shortDeltaTarget()).isCloseTo(config.strikes().cspDelta(), within(1e-9));
+        assertThat(sel.selectedShortDelta()).isCloseTo(0.30, within(0.1));
+        assertThat(sel.longDeltaTarget()).isEqualTo(0.0);
+
+        // Sized to a single lot — V1 never assumes tracked cash beyond one entry.
+        assertThat(candidate.contracts()).isEqualTo(1);
+
+        // Credit received; premium is the max profit, breakeven is strike − premium,
+        // and the assigned max loss is (strike − premium) × 100.
+        double premium = leg.mid();
+        assertThat(candidate.entryDebit()).isCloseTo(-premium, within(1e-9));
+        assertThat(candidate.maxProfit()).isCloseTo(premium * 100.0, within(1e-6));
+        assertThat(candidate.maxLoss()).isCloseTo((leg.strike() - premium) * 100.0, within(1e-6));
+        assertThat(candidate.rationale().pricing().breakeven())
+                .isCloseTo(leg.strike() - premium, within(1e-9));
+        assertThat(candidate.probabilityOfProfit()).isGreaterThan(0.5);
+
+        // Score folds the sell-premium-in-HIGH-IV match factor into the income EV.
+        assertThat(candidate.score())
+                .isCloseTo(premium * 100.0 * config.ranking().regimeFitMatch(), within(1e-6));
+    }
+
+    @Test
+    void flagsRequiredCashCollateralConsistentlyWithTheSoldPut() {
+        RecommendationCandidate candidate = selector.selectCashSecuredPut("MSFT",
+                signal(Direction.NEUTRAL, 30), regimeResult(VolatilityRegime.HIGH),
+                incomePutChain("MSFT"), config, 40_000.0).orElseThrow();
+
+        RecommendationLeg leg = candidate.legs().get(0);
+        RecommendationRationale.EntrySuggestion entry = candidate.rationale().entrySuggestion();
+        assertThat(entry).isNotNull();
+        assertThat(entry.label()).isEqualTo("REQUIRES_CASH_COLLATERAL");
+        assertThat(entry.note()).containsIgnoringCase("collateral");
+        assertThat(entry.contracts()).isEqualTo(1);
+        assertThat(entry.strike()).isEqualTo(leg.strike());
+        assertThat(entry.premiumPerShare()).isCloseTo(leg.mid(), within(1e-9));
+        // Cash-secured collateral = strike × 100 × contracts, never assumes tracked cash.
+        assertThat(entry.requiredCapital()).isCloseTo(leg.strike() * 100.0, within(1e-6));
+        // A CSP is an income overlay entry, not a covered call — no capped-upside block.
+        assertThat(candidate.rationale().incomeOverlay()).isNull();
+    }
+
+    @Test
+    void cashSecuredPutAbstainsWhenNoExpiryFallsInsideTheIncomeWindow() {
+        OptionChain chain = new OptionChain("MSFT", SPOT, AS_OF, true, List.of(
+                priced(CallPut.PUT, 95.0, TODAY.plusDays(10), 1_000),
+                priced(CallPut.PUT, 90.0, TODAY.plusDays(10), 1_000),
+                priced(CallPut.PUT, 95.0, TODAY.plusDays(90), 1_000),
+                priced(CallPut.PUT, 90.0, TODAY.plusDays(90), 1_000)));
+
+        assertThat(selector.selectCashSecuredPut("MSFT", signal(Direction.NEUTRAL, 30),
+                regimeResult(VolatilityRegime.HIGH), chain, config, 50_000.0)).isEmpty();
+    }
+
+    @Test
+    void cashSecuredPutAbstainsWhenProbabilityAboveTheShortStrikeIsUnderThePopFloor() {
+        // A 0.30Δ short put finishes above-strike ~70% of the time; a 0.95 floor rejects it.
+        EngineConfig strictPop = withMinPopCredit(0.95);
+
+        assertThat(selector.selectCashSecuredPut("MSFT", signal(Direction.NEUTRAL, 30),
+                regimeResult(VolatilityRegime.HIGH), incomePutChain("MSFT"), strictPop, 50_000.0)).isEmpty();
+    }
+
+    @Test
+    void cashSecuredPutReturnsEmptyForMissingEmptyOrUnpricedChain() {
+        OptionChain empty = new OptionChain("MSFT", SPOT, AS_OF, true, List.of());
+        OptionChain unpriced = new OptionChain("MSFT", 0.0, AS_OF, true,
+                List.of(priced(CallPut.PUT, 95.0, INCOME_EXPIRY, 1_000)));
+
+        assertThat(selector.selectCashSecuredPut("MSFT", signal(Direction.NEUTRAL, 30),
+                regimeResult(VolatilityRegime.HIGH), null, config, 50_000.0)).isEmpty();
+        assertThat(selector.selectCashSecuredPut("MSFT", signal(Direction.NEUTRAL, 30),
+                regimeResult(VolatilityRegime.HIGH), empty, config, 50_000.0)).isEmpty();
+        assertThat(selector.selectCashSecuredPut("MSFT", signal(Direction.NEUTRAL, 30),
+                regimeResult(VolatilityRegime.HIGH), unpriced, config, 50_000.0)).isEmpty();
+    }
+
     // ---- fixtures ----
 
     private DirectionSignal signal(Direction direction, int conviction) {
@@ -230,11 +331,27 @@ class IncomeOverlaySelectorTest {
         return new OptionChain(symbol, SPOT, AS_OF, true, contracts);
     }
 
+    /** OTM+ATM puts, strikes 70–100 in $5 steps, at one in-window income expiry. */
+    private OptionChain incomePutChain(String symbol) {
+        List<OptionContract> contracts = new ArrayList<>();
+        for (double strike = 70.0; strike <= 100.0; strike += 5.0) {
+            contracts.add(priced(symbol, CallPut.PUT, strike, INCOME_EXPIRY, 1_000));
+        }
+        return new OptionChain(symbol, SPOT, AS_OF, true, contracts);
+    }
+
     /** Replicates the selector's price→delta→nearest-target logic to pin the sold strike. */
     private OptionContract nearestDeltaCall(OptionChain chain) {
-        double target = config.strikes().coveredCallDelta();
+        return nearestDeltaContract(chain, CallPut.CALL, config.strikes().coveredCallDelta());
+    }
+
+    private OptionContract nearestDeltaPut(OptionChain chain) {
+        return nearestDeltaContract(chain, CallPut.PUT, config.strikes().cspDelta());
+    }
+
+    private OptionContract nearestDeltaContract(OptionChain chain, CallPut type, double target) {
         return chain.contracts().stream()
-                .filter(c -> c.callPut() == CallPut.CALL)
+                .filter(c -> c.callPut() == type)
                 .min(Comparator.comparingDouble(c -> Math.abs(deltaOf(chain.underlyingPrice(), c) - target)))
                 .orElseThrow();
     }
@@ -242,9 +359,9 @@ class IncomeOverlaySelectorTest {
     private double deltaOf(double spot, OptionContract c) {
         double t = ChronoUnit.DAYS.between(TODAY, c.expiration()) / 365.0;
         double iv = analytics.impliedVolatilityFromQuote(
-                new OptionInput(spot, c.strike(), t, 0.04, 0.0, 0.0, CallPut.CALL), c.bid(), c.ask());
+                new OptionInput(spot, c.strike(), t, 0.04, 0.0, 0.0, c.callPut()), c.bid(), c.ask());
         return Math.abs(analytics.value(
-                new OptionInput(spot, c.strike(), t, 0.04, 0.0, iv, CallPut.CALL)).delta());
+                new OptionInput(spot, c.strike(), t, 0.04, 0.0, iv, c.callPut())).delta());
     }
 
     private OptionContract priced(CallPut type, double strike, LocalDate expiry, int openInterest) {

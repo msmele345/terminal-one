@@ -419,6 +419,8 @@ class DirectionalStrategySelector {
                 case LONG_PUT -> new Structure(Kind.LONG_SINGLE, CallPut.PUT, false);
                 case COVERED_CALL -> throw new IllegalArgumentException(
                         "Covered calls are selected by IncomeOverlaySelector");
+                case CASH_SECURED_PUT -> throw new IllegalArgumentException(
+                        "Cash-secured puts are selected by IncomeOverlaySelector");
             };
         }
 

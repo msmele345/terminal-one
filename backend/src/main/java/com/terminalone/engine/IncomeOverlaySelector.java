@@ -68,8 +68,8 @@ class IncomeOverlaySelector {
         List<PricedContract> calls = chain.contracts().stream()
                 .filter(c -> c.callPut() == CallPut.CALL)
                 .filter(c -> c.expiration().equals(expiry.get()))
-                .filter(c -> passesOpenInterest(symbol, c, config))
-                .filter(c -> passesBidAskLiquidity(symbol, c, config))
+                .filter(c -> passesOpenInterest(symbol, StrategyType.COVERED_CALL, c, config))
+                .filter(c -> passesBidAskLiquidity(symbol, StrategyType.COVERED_CALL, c, config))
                 .map(c -> price(c, chain.underlyingPrice(), timeToExpiry))
                 .flatMap(Optional::stream)
                 .toList();
@@ -118,6 +118,95 @@ class IncomeOverlaySelector {
                 maxProfit, 0.0, 0.0, score, contracts, rationale));
     }
 
+    /**
+     * Phase 6 AC2: cash-secured put. When the NEUTRAL + HIGH IV cell has no held
+     * lot for a covered call, offer selling one {@code cspDelta} (0.30Δ) put in the
+     * income DTE window as an <em>entry</em> suggestion. It is always presentable
+     * but flagged with the collateral it requires (strike × 100 × contracts) — V1
+     * never assumes a tracked cash balance, so it is sized to a single lot rather
+     * than the per-trade risk cap.
+     */
+    Optional<RecommendationCandidate> selectCashSecuredPut(String symbol,
+                                                           DirectionSignal signal,
+                                                           VolatilityRegimeResult regime,
+                                                           OptionChain chain,
+                                                           EngineConfig config,
+                                                           double portfolioValue) {
+        if (chain == null || chain.underlyingPrice() <= 0.0 || chain.contracts().isEmpty()) {
+            return Optional.empty();
+        }
+
+        LocalDate today = LocalDate.now(clock);
+        Optional<LocalDate> expiry = selectExpiry(chain, today,
+                config.expiry().incomeDteTarget(), config.expiry().incomeDteWindow());
+        if (expiry.isEmpty()) {
+            logger.info("Rejected {} {} candidate: {} (No expiration falls inside income DTE window [{},{}])",
+                    symbol, StrategyType.CASH_SECURED_PUT, GuardrailReason.NO_VALID_EXPIRY,
+                    config.expiry().incomeDteWindow().min(), config.expiry().incomeDteWindow().max());
+            return Optional.empty();
+        }
+
+        int dte = (int) ChronoUnit.DAYS.between(today, expiry.get());
+        double timeToExpiry = dte / DAYS_PER_YEAR;
+        List<PricedContract> puts = chain.contracts().stream()
+                .filter(c -> c.callPut() == CallPut.PUT)
+                .filter(c -> c.expiration().equals(expiry.get()))
+                .filter(c -> passesOpenInterest(symbol, StrategyType.CASH_SECURED_PUT, c, config))
+                .filter(c -> passesBidAskLiquidity(symbol, StrategyType.CASH_SECURED_PUT, c, config))
+                .map(c -> price(c, chain.underlyingPrice(), timeToExpiry))
+                .flatMap(Optional::stream)
+                .toList();
+        if (puts.isEmpty()) {
+            return Optional.empty();
+        }
+
+        PricedContract shortPut = puts.stream()
+                .min(Comparator.comparingDouble(c -> Math.abs(c.absDelta() - config.strikes().cspDelta())))
+                .orElseThrow();
+        int contracts = 1; // entry suggestion; V1 does not track cash — never assume more than one lot
+        double premium = shortPut.mid();
+        double spot = chain.underlyingPrice();
+        double strike = shortPut.strike();
+        // A short put keeps the full premium while the underlying holds above the strike.
+        double pop = probabilityAbove(spot, strike, timeToExpiry, shortPut.iv());
+        if (pop < config.filters().minPopCredit()) {
+            logger.info("Rejected {} {} candidate: {} (POP {} < {})",
+                    symbol, StrategyType.CASH_SECURED_PUT, GuardrailReason.POP_BELOW_FLOOR,
+                    pop, config.filters().minPopCredit());
+            return Optional.empty();
+        }
+
+        double maxProfit = premium * SHARES_PER_CONTRACT;                          // keep the premium
+        double maxLoss = Math.max(0.0, (strike - premium) * SHARES_PER_CONTRACT);  // assigned, then → 0
+        double breakeven = strike - premium;
+        double requiredCapital = strike * SHARES_PER_CONTRACT * contracts;         // cash-secured collateral
+        double riskReward = maxLoss > 0.0 ? maxProfit / maxLoss : 0.0;
+        double rawEv = premium * SHARES_PER_CONTRACT;
+        double score = rawEv * config.ranking().regimeFitMatch();
+        RecommendationRationale rationale = new RecommendationRationale(
+                signal.toRationale(),
+                new RecommendationRationale.Regime(regime.regime(), regime.reason(), shortPut.iv()),
+                new RecommendationRationale.Selection("income", dte,
+                        0.0, config.strikes().cspDelta(), 0.0, shortPut.absDelta()),
+                new RecommendationRationale.Pricing(0.0, -premium, breakeven, pop,
+                        maxProfit, maxLoss, riskReward, rawEv),
+                new RecommendationRationale.Sizing(contracts, maxLoss, portfolioValue,
+                        config.sizing().perTradeRiskPct(), maxLoss),
+                null,
+                new RecommendationRationale.EntrySuggestion(
+                        "REQUIRES_CASH_COLLATERAL",
+                        "Cash-secured put entry suggestion; requires strike × 100 × contracts in cash "
+                                + "collateral (V1 does not track your cash balance).",
+                        contracts,
+                        strike,
+                        premium,
+                        requiredCapital));
+
+        return Optional.of(new RecommendationCandidate(symbol, StrategyType.CASH_SECURED_PUT, signal, regime,
+                expiry.get(), List.of(leg("SELL", shortPut)), -premium, pop,
+                maxProfit, maxLoss, riskReward, score, contracts, rationale));
+    }
+
     private Optional<LocalDate> selectExpiry(OptionChain chain, LocalDate today,
                                              EngineConfig.IntRange target,
                                              EngineConfig.IntRange window) {
@@ -135,17 +224,19 @@ class IncomeOverlaySelector {
                         .thenComparing(Comparator.naturalOrder()));
     }
 
-    private boolean passesOpenInterest(String symbol, OptionContract contract, EngineConfig config) {
+    private boolean passesOpenInterest(String symbol, StrategyType strategy, OptionContract contract,
+            EngineConfig config) {
         if (contract.openInterest() >= config.filters().minOpenInterest()) {
             return true;
         }
         logger.info("Rejected {} {} candidate: {} ({} OI {} < {})",
-                symbol, StrategyType.COVERED_CALL, GuardrailReason.LOW_OPEN_INTEREST,
+                symbol, strategy, GuardrailReason.LOW_OPEN_INTEREST,
                 contract.optionSymbol(), contract.openInterest(), config.filters().minOpenInterest());
         return false;
     }
 
-    private boolean passesBidAskLiquidity(String symbol, OptionContract contract, EngineConfig config) {
+    private boolean passesBidAskLiquidity(String symbol, StrategyType strategy, OptionContract contract,
+            EngineConfig config) {
         double mid = contract.mid();
         double width = contract.ask() - contract.bid();
         boolean liquid = contract.bid() > 0.0
@@ -157,7 +248,7 @@ class IncomeOverlaySelector {
             return true;
         }
         logger.info("Rejected {} {} candidate: {} ({} bid/ask {}/{} exceeds spread limits)",
-                symbol, StrategyType.COVERED_CALL, GuardrailReason.ILLIQUID_BID_ASK,
+                symbol, strategy, GuardrailReason.ILLIQUID_BID_ASK,
                 contract.optionSymbol(), contract.bid(), contract.ask());
         return false;
     }

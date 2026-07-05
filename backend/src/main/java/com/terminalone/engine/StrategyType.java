@@ -8,7 +8,8 @@ public enum StrategyType {
     BEAR_CALL_CREDIT_SPREAD,
     LONG_CALL,
     LONG_PUT,
-    COVERED_CALL;
+    COVERED_CALL,
+    CASH_SECURED_PUT;
 
     /** Credit spreads receive premium; debit/long structures pay it. Drives the §8 regime-fit lookup. */
     public boolean isCredit() {

@@ -41,6 +41,9 @@ public class RecommendationEngine {
 
     private static final Logger logger = LoggerFactory.getLogger(RecommendationEngine.class);
 
+    /** A covered call needs one round lot of the underlying (§2 eligibility). */
+    private static final int SHARES_PER_LOT = 100;
+
     public RecommendationEngine(EngineConfigProvider configProvider,
             PositionSource positions,
             MarketDataProvider marketData,
@@ -98,8 +101,15 @@ public class RecommendationEngine {
                 signal.direction(), regime.regime(), signal.conviction(), config.conviction());
         if (strategy.isEmpty()) {
             if (signal.direction() == Direction.NEUTRAL && regime.regime() == VolatilityRegime.HIGH) {
-                return incomeOverlaySelector.selectCoveredCall(symbol, signal, regime, chain, config,
-                        heldShares(symbol), portfolioValue);
+                // §2 NEUTRAL × HIGH IV: a covered call when a lot is held, else a
+                // cash-secured put entry suggestion (flagged for required capital).
+                int held = heldShares(symbol);
+                if (held >= SHARES_PER_LOT) {
+                    return incomeOverlaySelector.selectCoveredCall(symbol, signal, regime, chain, config,
+                            held, portfolioValue);
+                }
+                return incomeOverlaySelector.selectCashSecuredPut(symbol, signal, regime, chain, config,
+                        portfolioValue);
             }
             return java.util.Optional.empty();
         }

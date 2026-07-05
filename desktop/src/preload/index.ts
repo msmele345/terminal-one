@@ -120,6 +120,7 @@ export type StrategyType =
   | 'LONG_CALL'
   | 'LONG_PUT'
   | 'COVERED_CALL'
+  | 'CASH_SECURED_PUT'
 
 export interface RecommendationLeg {
   action: string // 'BUY' | 'SELL'
@@ -187,6 +188,15 @@ export interface RecommendationRationale {
     capStrike: number
     premiumPerShare: number
     cappedUpsidePerContract: number
+  } | null
+  // Phase 6 AC2: cash-secured-put entry suggestion, flagged for required collateral.
+  entrySuggestion?: {
+    label: string
+    note: string
+    contracts: number
+    strike: number
+    premiumPerShare: number
+    requiredCapital: number
   } | null
 }
 

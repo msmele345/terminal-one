@@ -261,19 +261,36 @@ class EngineRunControllerTest {
     }
 
     @Test
-    void neutralHighIvUnderlyingWithFewerThanOneHundredSharesDoesNotProduceCoveredCall() throws Exception {
-        addStock("MSFT", 99, "100.00");
+    void neutralHighIvUnderlyingWithFewerThanOneHundredSharesProducesACashSecuredPutInstead() throws Exception {
+        addStock("MSFT", 99, "100.00"); // < 100 shares → covered call ineligible, CSP is the §2 "else"
         seedHighIvRankHistory("MSFT");
         when(marketData.getDailyBars("MSFT")).thenReturn(flatHistory("MSFT"));
-        when(marketData.getChain("MSFT")).thenReturn(highIvIncomeCallChain("MSFT"));
+        when(marketData.getChain("MSFT")).thenReturn(highIvIncomePutChain("MSFT"));
 
         mockMvc.perform(post("/api/engine/run")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.recommendations", hasSize(0)));
+                .andExpect(jsonPath("$.recommendations", hasSize(1)))
+                .andExpect(jsonPath("$.recommendations[0].symbol").value("MSFT"))
+                .andExpect(jsonPath("$.recommendations[0].strategy").value("CASH_SECURED_PUT"))
+                .andExpect(jsonPath("$.recommendations[0].direction").value("NEUTRAL"))
+                .andExpect(jsonPath("$.recommendations[0].regime").value("HIGH"))
+                .andExpect(jsonPath("$.recommendations[0].expiry").value(INCOME_EXPIRY.toString()))
+                .andExpect(jsonPath("$.recommendations[0].contracts").value(1))
+                .andExpect(jsonPath("$.recommendations[0].legs", hasSize(1)))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].action").value("SELL"))
+                .andExpect(jsonPath("$.recommendations[0].legs[0].callPut").value("PUT"))
+                .andExpect(jsonPath("$.recommendations[0].rationale.selection.shortDeltaTarget").value(0.30))
+                .andExpect(jsonPath("$.recommendations[0].rationale.entrySuggestion.label")
+                        .value("REQUIRES_CASH_COLLATERAL"))
+                .andExpect(jsonPath("$.recommendations[0].rationale.entrySuggestion.requiredCapital").isNumber());
 
-        assertThat(recommendations.findAll()).isEmpty();
+        assertThat(recommendations.findAll()).singleElement().satisfies(saved -> {
+            assertThat(saved.getStrategy()).isEqualTo(StrategyType.CASH_SECURED_PUT);
+            assertThat(saved.getContracts()).isEqualTo(1);
+            assertThat(saved.getRationale()).contains("REQUIRES_CASH_COLLATERAL");
+        });
     }
 
     private void seedNormalIvRankHistory(String symbol) {
@@ -367,6 +384,22 @@ class EngineRunControllerTest {
                 pricedContract(symbol, CallPut.CALL, 115.0, spot, sigma, INCOME_EXPIRY),
                 pricedContract(symbol, CallPut.CALL, 120.0, spot, sigma, INCOME_EXPIRY),
                 pricedContract(symbol, CallPut.CALL, 125.0, spot, sigma, INCOME_EXPIRY)));
+    }
+
+    /** ATM call (for the ATM-IV read) plus a put ladder below spot for the CSP short strike.
+     *  σ=0.35 still ranks HIGH vs the seeded 0.20–0.40 history, but keeps the 0.30Δ put's
+     *  POP above the 0.65 credit floor. */
+    private OptionChain highIvIncomePutChain(String symbol) {
+        double spot = 100.0;
+        double sigma = 0.35;
+        return new OptionChain(symbol, spot, AS_OF, true, List.of(
+                pricedContract(symbol, CallPut.CALL, 100.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 100.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 95.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 90.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 85.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 80.0, spot, sigma, INCOME_EXPIRY),
+                pricedContract(symbol, CallPut.PUT, 75.0, spot, sigma, INCOME_EXPIRY)));
     }
 
     private OptionContract pricedContract(String symbol, CallPut type, double strike, double spot,

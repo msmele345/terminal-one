@@ -6,7 +6,8 @@ public record RecommendationRationale(
         Selection selection,
         Pricing pricing,
         Sizing sizing,
-        IncomeOverlay incomeOverlay) {
+        IncomeOverlay incomeOverlay,
+        EntrySuggestion entrySuggestion) {
 
     public RecommendationRationale(
             Signals signals,
@@ -14,7 +15,17 @@ public record RecommendationRationale(
             Selection selection,
             Pricing pricing,
             Sizing sizing) {
-        this(signals, regime, selection, pricing, sizing, null);
+        this(signals, regime, selection, pricing, sizing, null, null);
+    }
+
+    public RecommendationRationale(
+            Signals signals,
+            Regime regime,
+            Selection selection,
+            Pricing pricing,
+            Sizing sizing,
+            IncomeOverlay incomeOverlay) {
+        this(signals, regime, selection, pricing, sizing, incomeOverlay, null);
     }
 
     /** Phase 5 AC5 (§7): how many contracts the engine sized the structure to. */
@@ -35,6 +46,20 @@ public record RecommendationRationale(
             double capStrike,
             double premiumPerShare,
             double cappedUpsidePerContract) {
+    }
+
+    /**
+     * Phase 6 AC2: a cash-secured-put entry suggestion. V1 does not track a cash
+     * balance, so the CSP is always presentable but flagged with the collateral it
+     * requires (strike × 100 × contracts) — never assuming the cash is on hand.
+     */
+    public record EntrySuggestion(
+            String label,
+            String note,
+            int contracts,
+            double strike,
+            double premiumPerShare,
+            double requiredCapital) {
     }
 
     public record Signals(
@@ -77,6 +102,7 @@ public record RecommendationRationale(
 
     /** Selector-built rationales carry no sizing; the engine fills it after §7 sizing runs. */
     public RecommendationRationale withSizing(Sizing sizing) {
-        return new RecommendationRationale(signals, regime, selection, pricing, sizing, incomeOverlay);
+        return new RecommendationRationale(signals, regime, selection, pricing, sizing, incomeOverlay,
+                entrySuggestion);
     }
 }
