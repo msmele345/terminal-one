@@ -77,6 +77,12 @@ class EngineRunControllerTest {
     @Autowired
     private IvHistoryRepository ivHistory;
 
+    @Autowired
+    private EngineBatchRunRepository batchRuns;
+
+    @Autowired
+    private SignalSnapshotRepository signalSnapshots;
+
     @MockitoBean
     private MarketDataProvider marketData;
 
@@ -146,6 +152,39 @@ class EngineRunControllerTest {
             assertThat(saved.getRationale()).contains("IV_RANK");
             assertThat(saved.getRationale()).contains("sizing");
             assertThat(saved.getRationale()).contains("EARNINGS_CALENDAR_UNAVAILABLE");
+        });
+    }
+
+    /**
+     * Phase 6 AC6 — the lever-pull shares the scheduled batch's engine path:
+     * every {@code POST /api/engine/run} leaves an observable ON_DEMAND run
+     * record with its signal snapshots, and the persisted recommendation is
+     * linked to that run.
+     */
+    @Test
+    void leverPullRecordsAnObservableOnDemandBatchRunWithSnapshots() throws Exception {
+        addStock("AAPL", 1_000, "150.00");
+        seedNormalIvRankHistory("AAPL");
+        when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
+        when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
+
+        mockMvc.perform(post("/api/engine/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recommendations", hasSize(1)));
+
+        assertThat(batchRuns.findAll()).singleElement().satisfies(run -> {
+            assertThat(run.getKind()).isEqualTo(EngineBatchKind.ON_DEMAND);
+            assertThat(run.getStatus()).isEqualTo(EngineBatchStatus.COMPLETED);
+            assertThat(run.getRecommendationCount()).isEqualTo(1);
+            assertThat(run.getSignalSnapshotCount()).isEqualTo(1);
+
+            assertThat(recommendations.findAll()).singleElement()
+                    .satisfies(saved -> assertThat(saved.getBatchRunId()).isEqualTo(run.getId()));
+            assertThat(signalSnapshots.findByBatchRunIdOrderBySymbolAsc(run.getId()))
+                    .singleElement()
+                    .satisfies(snapshot -> assertThat(snapshot.getSymbol()).isEqualTo("AAPL"));
         });
     }
 

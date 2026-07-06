@@ -7,20 +7,23 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Lever-pull API (Phase 4 AC3): runs the deterministic engine path and returns
- * any recommendations it persisted. Authentication is handled globally.
+ * any recommendations it persisted. Routed through {@link EngineBatchRunner}
+ * so the on-demand pull shares the scheduled batch's engine path and records
+ * an observable ON_DEMAND run (Phase 6 AC6). Authentication is handled
+ * globally.
  */
 @RestController
 @RequestMapping("/api/engine")
 public class EngineRunController {
 
-    private final RecommendationEngine engine;
+    private final EngineBatchRunner batchRunner;
 
-    public EngineRunController(RecommendationEngine engine) {
-        this.engine = engine;
+    public EngineRunController(EngineBatchRunner batchRunner) {
+        this.batchRunner = batchRunner;
     }
 
     @PostMapping("/run")
     public EngineRunResponse run(@RequestBody(required = false) EngineRunRequest request) {
-        return engine.run(request == null ? new EngineRunRequest(null) : request);
+        return batchRunner.runOnDemand(request);
     }
 }

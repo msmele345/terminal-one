@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -81,19 +82,30 @@ class RecommendationEngineTest {
     private ActiveEngineConfig activeEngineConfig;
     private EngineRunRequest engineRunRequest;
 
+    /** Every run now happens inside a recorded batch (AC6); tests emit into this list. */
+    private static final long BATCH_RUN_ID = 7L;
+    private List<SignalSnapshot> emittedSnapshots;
+
     @BeforeEach
     void setUp() throws Exception {
         engineConfig = EngineConfigDefaults.load();
         activeEngineConfig = new ActiveEngineConfig(1, engineConfig);
         engineRunRequest = new EngineRunRequest("AAPL");
+        emittedSnapshots = new java.util.ArrayList<>();
+        // Snapshot capture stamps LocalDate.now(clock) + clock.instant(); lenient
+        // because the NO_MARKET_DATA path never reaches capture.
+        lenient().when(clock.instant()).thenReturn(AS_OF);
+        lenient().when(clock.getZone()).thenReturn(ZoneOffset.UTC);
+    }
+
+    private EngineRunResponse runEngine(EngineRunRequest request) {
+        return recommendationEngine.run(request, BATCH_RUN_ID, emittedSnapshots::add);
     }
 
     @Test
     void bullishNormalUnderlyingProducesAndPersistsABullCallDebitSpread() throws Exception {
         // Arrange — config
         when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
-
-        when(clock.instant()).thenReturn(AS_OF);
 
         // Arrange — market data (bullish price history)
         PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
@@ -156,7 +168,7 @@ class RecommendationEngineTest {
         when(objectMapper.writeValueAsString(any())).thenReturn("{}");
 
         // Act
-        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+        EngineRunResponse response = runEngine(engineRunRequest);
 
         // Assert — response shape
         assertThat(response.recommendations()).hasSize(1);
@@ -186,6 +198,13 @@ class RecommendationEngineTest {
 
         // A qualifying underlying yields a trade, so nothing is abstained.
         assertThat(response.abstentions()).isEmpty();
+
+        // AC6: every run — lever-pull included — emits a signal snapshot per
+        // underlying that reaches signal/regime computation.
+        assertThat(emittedSnapshots).singleElement().satisfies(snapshot -> {
+            assertThat(snapshot.getSymbol()).isEqualTo("AAPL");
+            assertThat(snapshot.getBatchRunId()).isEqualTo(BATCH_RUN_ID);
+        });
 
         // Assert — persistence was invoked
         verify(recommendationRepository).save(any());
@@ -235,7 +254,7 @@ class RecommendationEngineTest {
         when(positionSource.listOptions()).thenReturn(List.of());
 
         // Act
-        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+        EngineRunResponse response = runEngine(engineRunRequest);
 
         // Assert — abstained, nothing persisted, and the §7 reason is returned explicitly.
         assertThat(response.recommendations()).isEmpty();
@@ -273,7 +292,7 @@ class RecommendationEngineTest {
         when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
                 .thenReturn(new VolatilityRegimeResult(VolatilityRegime.NORMAL, "IV_RANK", 0.30));
 
-        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+        EngineRunResponse response = runEngine(engineRunRequest);
 
         assertThat(response.recommendations()).isEmpty();
         assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
@@ -295,7 +314,7 @@ class RecommendationEngineTest {
         when(positionSource.listOptions()).thenReturn(List.of());
         when(marketDataProvider.getChain("AAPL")).thenReturn(null);
 
-        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+        EngineRunResponse response = runEngine(engineRunRequest);
 
         assertThat(response.recommendations()).isEmpty();
         assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
@@ -339,7 +358,7 @@ class RecommendationEngineTest {
                 eq(chain), eq(engineConfig)))
                 .thenReturn(new CandidateSelection(Optional.empty(), List.of(rejection)));
 
-        EngineRunResponse response = recommendationEngine.run(engineRunRequest);
+        EngineRunResponse response = runEngine(engineRunRequest);
 
         assertThat(response.recommendations()).isEmpty();
         assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
@@ -354,8 +373,6 @@ class RecommendationEngineTest {
         // Three underlyings, three survivors with distinct §8 scores; default topN=3 keeps all,
         // asserted in descending score order regardless of iteration order.
         when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
-        when(clock.instant()).thenReturn(AS_OF);
-
         // Big enough book that none abstain on RISK_TOO_LARGE; three underlyings are
         // distinct portfolio symbols so symbolsFor iterates all three.
         when(positionSource.listStocks()).thenReturn(List.of(
@@ -410,7 +427,7 @@ class RecommendationEngineTest {
         when(recommendationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         // Act — null request means "run over all portfolio underlyings."
-        EngineRunResponse response = recommendationEngine.run(new EngineRunRequest(null));
+        EngineRunResponse response = runEngine(new EngineRunRequest(null));
 
         // Assert — globally ranked by score, not iteration order.
         assertThat(response.recommendations()).hasSize(3);
