@@ -70,22 +70,16 @@ public class RecommendationEngine {
         this.clock = clock;
     }
 
+    /**
+     * The one engine path (Phase 6 AC6): every trigger — scheduled EOD batch or
+     * on-demand lever-pull — runs through here via {@link EngineBatchRunner},
+     * always inside a recorded batch run and always emitting signal snapshots.
+     */
     @Transactional
-    public EngineRunResponse run(EngineRunRequest request) {
-        return runInternal(request, null, snapshot -> {
-        });
-    }
-
-    @Transactional
-    public EngineRunResponse runEodBatch(Long batchRunId, Consumer<SignalSnapshot> signalSnapshotSink) {
-        Objects.requireNonNull(batchRunId, "batchRunId is required");
-        Objects.requireNonNull(signalSnapshotSink, "signalSnapshotSink is required");
-        return runInternal(new EngineRunRequest(null), batchRunId, signalSnapshotSink);
-    }
-
-    private EngineRunResponse runInternal(EngineRunRequest request,
-            Long batchRunId,
+    public EngineRunResponse run(EngineRunRequest request,
+            long batchRunId,
             Consumer<SignalSnapshot> signalSnapshotSink) {
+        Objects.requireNonNull(signalSnapshotSink, "signalSnapshotSink is required");
         ActiveEngineConfig active = configProvider.getActive();
         EngineConfig config = active.config();
         double portfolioValue = portfolioValueAtCost();
@@ -122,7 +116,7 @@ public class RecommendationEngine {
     private SymbolOutcome resolveSymbol(String symbol,
             ActiveEngineConfig active,
             double portfolioValue,
-            Long batchRunId,
+            long batchRunId,
             Consumer<SignalSnapshot> signalSnapshotSink) {
         EngineConfig config = active.config();
 
@@ -186,16 +180,13 @@ public class RecommendationEngine {
                 sizing.contracts(), unsized.rationale().withSizing(rationaleSizing)));
     }
 
-    private void captureSignalSnapshot(Long batchRunId,
+    private void captureSignalSnapshot(long batchRunId,
             Consumer<SignalSnapshot> signalSnapshotSink,
             int configVersion,
             String symbol,
             DirectionSignal signal,
             VolatilityRegimeResult regime,
             OptionChain chain) {
-        if (batchRunId == null) {
-            return;
-        }
         signalSnapshotSink.accept(SignalSnapshot.fromBatchRun(
                 batchRunId,
                 configVersion,
@@ -267,7 +258,7 @@ public class RecommendationEngine {
         return value;
     }
 
-    private Recommendation toEntity(RecommendationCandidate candidate, int configVersion, Long batchRunId) {
+    private Recommendation toEntity(RecommendationCandidate candidate, int configVersion, long batchRunId) {
         // Existing columns separate bought and sold option legs. Directional
         // long-single structures have no sold leg; covered calls have no bought
         // option leg because the stock shares are already held in the portfolio.

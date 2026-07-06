@@ -58,8 +58,8 @@ public class EngineBatchRun {
         this.signalSnapshotCount = 0;
     }
 
-    static EngineBatchRun startEod(Instant startedAt) {
-        return new EngineBatchRun(EngineBatchKind.SCHEDULED_EOD, startedAt);
+    static EngineBatchRun start(EngineBatchKind kind, Instant startedAt) {
+        return new EngineBatchRun(kind, startedAt);
     }
 
     void complete(EngineRunResponse response, int signalSnapshotCount, Instant completedAt) {

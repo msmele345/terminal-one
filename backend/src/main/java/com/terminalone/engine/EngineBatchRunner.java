@@ -9,17 +9,24 @@ import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Single orchestration path for every engine run (Phase 6 AC6): the scheduled
+ * EOD batch and the on-demand lever-pull both execute here, so each records an
+ * observable {@code engine_batch_runs} row, persists {@code signal_snapshots},
+ * and links its recommendations — the only difference is the {@link
+ * EngineBatchKind} stamp and, for the lever, an optional symbol filter.
+ */
 @Component
-public class EodEngineBatchRunner {
+public class EngineBatchRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(EodEngineBatchRunner.class);
+    private static final Logger log = LoggerFactory.getLogger(EngineBatchRunner.class);
 
     private final RecommendationEngine engine;
     private final EngineBatchRunRepository batchRuns;
     private final SignalSnapshotRepository signalSnapshots;
     private final Clock clock;
 
-    public EodEngineBatchRunner(RecommendationEngine engine,
+    public EngineBatchRunner(RecommendationEngine engine,
             EngineBatchRunRepository batchRuns,
             SignalSnapshotRepository signalSnapshots,
             Clock clock) {
@@ -36,23 +43,34 @@ public class EodEngineBatchRunner {
     }
 
     public EngineBatchRunResponse runEodBatch() {
-        EngineBatchRun run = batchRuns.saveAndFlush(EngineBatchRun.startEod(clock.instant()));
+        return EngineBatchRunResponse.from(
+                execute(EngineBatchKind.SCHEDULED_EOD, new EngineRunRequest(null)).run());
+    }
+
+    /** On-demand lever-pull: same path as the EOD batch, returns the full engine response. */
+    public EngineRunResponse runOnDemand(EngineRunRequest request) {
+        return execute(EngineBatchKind.ON_DEMAND,
+                request == null ? new EngineRunRequest(null) : request).response();
+    }
+
+    private BatchExecution execute(EngineBatchKind kind, EngineRunRequest request) {
+        EngineBatchRun run = batchRuns.saveAndFlush(EngineBatchRun.start(kind, clock.instant()));
         AtomicInteger snapshotCount = new AtomicInteger();
         try {
-            EngineRunResponse response = engine.runEodBatch(run.getId(), snapshot -> {
+            EngineRunResponse response = engine.run(request, run.getId(), snapshot -> {
                 signalSnapshots.save(snapshot);
                 snapshotCount.incrementAndGet();
             });
             run.complete(response, snapshotCount.get(), clock.instant());
             EngineBatchRun saved = batchRuns.save(run);
-            log.info("EOD engine batch {} completed: {} recommendation(s), {} abstention(s), {} signal snapshot(s)",
-                    saved.getId(), saved.getRecommendationCount(), saved.getAbstentionCount(),
+            log.info("{} engine batch {} completed: {} recommendation(s), {} abstention(s), {} signal snapshot(s)",
+                    saved.getKind(), saved.getId(), saved.getRecommendationCount(), saved.getAbstentionCount(),
                     saved.getSignalSnapshotCount());
-            return EngineBatchRunResponse.from(saved);
+            return new BatchExecution(saved, response);
         } catch (RuntimeException e) {
             run.fail(errorMessage(e), clock.instant());
             EngineBatchRun saved = batchRuns.save(run);
-            log.warn("EOD engine batch {} failed: {}", saved.getId(), saved.getErrorMessage(), e);
+            log.warn("{} engine batch {} failed: {}", saved.getKind(), saved.getId(), saved.getErrorMessage(), e);
             throw e;
         }
     }
@@ -60,6 +78,9 @@ public class EodEngineBatchRunner {
     public Optional<EngineBatchRunResponse> latestRun() {
         return batchRuns.findTopByOrderByStartedAtDesc()
                 .map(EngineBatchRunResponse::from);
+    }
+
+    private record BatchExecution(EngineBatchRun run, EngineRunResponse response) {
     }
 
     private static String errorMessage(RuntimeException e) {

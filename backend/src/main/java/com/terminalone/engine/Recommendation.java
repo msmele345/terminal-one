@@ -210,6 +210,22 @@ public class Recommendation {
         return expiry;
     }
 
+    public String getLongOptionSymbol() {
+        return longOptionSymbol;
+    }
+
+    public BigDecimal getLongStrike() {
+        return longStrike;
+    }
+
+    public String getShortOptionSymbol() {
+        return shortOptionSymbol;
+    }
+
+    public BigDecimal getShortStrike() {
+        return shortStrike;
+    }
+
     public double getEntryDebit() {
         return entryDebit.doubleValue();
     }

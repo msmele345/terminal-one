@@ -1,5 +1,6 @@
 package com.terminalone.engine;
 
+import com.terminalone.engine.config.EngineConfigRepository;
 import com.terminalone.engine.config.EngineConfigSeeder;
 import com.terminalone.marketdata.BlackScholesOptionAnalytics;
 import com.terminalone.marketdata.CallPut;
@@ -37,12 +38,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @ActiveProfiles("test")
 @Transactional
-class EodEngineBatchRunnerTest {
+class EngineBatchRunnerTest {
 
     private static final LocalDate TODAY = LocalDate.of(2026, 7, 1);
     private static final Instant AS_OF = TODAY.atTime(20, 0).toInstant(ZoneOffset.UTC);
@@ -51,10 +53,13 @@ class EodEngineBatchRunnerTest {
     private final OptionAnalytics analytics = new BlackScholesOptionAnalytics();
 
     @Autowired
-    private EodEngineBatchRunner runner;
+    private EngineBatchRunner runner;
 
     @Autowired
     private EngineConfigSeeder seeder;
+
+    @Autowired
+    private EngineConfigRepository engineConfigs;
 
     @Autowired
     private StockPositionRepository stocks;
@@ -137,9 +142,115 @@ class EodEngineBatchRunnerTest {
                 });
     }
 
+    /**
+     * Phase 6 AC6 — the on-demand lever-pull runs through the same batch
+     * orchestration as the scheduled EOD run: it records an observable
+     * {@code ON_DEMAND} run record, persists signal snapshots, and links its
+     * recommendations, while still returning the full engine response the UI
+     * renders.
+     */
+    @Test
+    void onDemandLeverPullRecordsAnObservableRunWithSnapshotsViaTheSameEnginePath() {
+        stocks.save(new StockPosition("AAPL", new BigDecimal("1000"), new BigDecimal("150.00"), TODAY));
+        stocks.save(new StockPosition("FLAT", new BigDecimal("100"), new BigDecimal("100.00"), TODAY));
+        seedNormalIvRankHistory("AAPL");
+        seedNormalIvRankHistory("FLAT");
+        when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
+        when(marketData.getDailyBars("FLAT")).thenReturn(flatHistory("FLAT"));
+        when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
+        when(marketData.getChain("FLAT")).thenReturn(normalIvChain("FLAT"));
+
+        EngineRunResponse response = runner.runOnDemand(new EngineRunRequest(null));
+
+        assertThat(response.recommendations()).singleElement()
+                .satisfies(rec -> assertThat(rec.symbol()).isEqualTo("AAPL"));
+        assertThat(response.abstentions()).singleElement()
+                .satisfies(abstention -> assertThat(abstention.symbol()).isEqualTo("FLAT"));
+
+        assertThat(batchRuns.findAll()).singleElement().satisfies(savedRun -> {
+            assertThat(savedRun.getKind()).isEqualTo(EngineBatchKind.ON_DEMAND);
+            assertThat(savedRun.getStatus()).isEqualTo(EngineBatchStatus.COMPLETED);
+            assertThat(savedRun.getRecommendationCount()).isEqualTo(1);
+            assertThat(savedRun.getAbstentionCount()).isEqualTo(1);
+            assertThat(savedRun.getSignalSnapshotCount()).isEqualTo(2);
+
+            assertThat(recommendations.findAll()).singleElement()
+                    .satisfies(rec -> assertThat(rec.getBatchRunId()).isEqualTo(savedRun.getId()));
+            assertThat(signalSnapshots.findByBatchRunIdOrderBySymbolAsc(savedRun.getId()))
+                    .extracting(SignalSnapshot::getSymbol)
+                    .containsExactly("AAPL", "FLAT");
+        });
+    }
+
+    /**
+     * Phase 6 AC6 — no divergent logic: the scheduled EOD batch and the
+     * on-demand lever-pull, given identical portfolio and market inputs,
+     * persist recommendations that agree on every economic field.
+     */
+    @Test
+    void onDemandAndScheduledBatchProduceIdenticalRecommendationsFromTheSameInputs() {
+        stocks.save(new StockPosition("AAPL", new BigDecimal("1000"), new BigDecimal("150.00"), TODAY));
+        seedNormalIvRankHistory("AAPL");
+        when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
+        when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
+
+        EngineBatchRunResponse eod = runner.runEodBatch();
+        runner.runOnDemand(new EngineRunRequest(null));
+
+        EngineBatchRun onDemandRun = batchRuns.findAll().stream()
+                .filter(run -> run.getKind() == EngineBatchKind.ON_DEMAND)
+                .findFirst().orElseThrow();
+        Recommendation fromEod = recommendations.findAll().stream()
+                .filter(rec -> eod.id().equals(rec.getBatchRunId()))
+                .findFirst().orElseThrow();
+        Recommendation fromLever = recommendations.findAll().stream()
+                .filter(rec -> onDemandRun.getId().equals(rec.getBatchRunId()))
+                .findFirst().orElseThrow();
+
+        assertThat(fromLever.getSymbol()).isEqualTo(fromEod.getSymbol());
+        assertThat(fromLever.getStrategy()).isEqualTo(fromEod.getStrategy());
+        assertThat(fromLever.getDirection()).isEqualTo(fromEod.getDirection());
+        assertThat(fromLever.getRegime()).isEqualTo(fromEod.getRegime());
+        assertThat(fromLever.getConviction()).isEqualTo(fromEod.getConviction());
+        assertThat(fromLever.getConfigVersion()).isEqualTo(fromEod.getConfigVersion());
+        assertThat(fromLever.getExpiry()).isEqualTo(fromEod.getExpiry());
+        assertThat(fromLever.getLongOptionSymbol()).isEqualTo(fromEod.getLongOptionSymbol());
+        assertThat(fromLever.getLongStrike()).isEqualTo(fromEod.getLongStrike());
+        assertThat(fromLever.getShortOptionSymbol()).isEqualTo(fromEod.getShortOptionSymbol());
+        assertThat(fromLever.getShortStrike()).isEqualTo(fromEod.getShortStrike());
+        assertThat(fromLever.getEntryDebit()).isEqualTo(fromEod.getEntryDebit());
+        assertThat(fromLever.getProbabilityOfProfit()).isEqualTo(fromEod.getProbabilityOfProfit());
+        assertThat(fromLever.getMaxProfit()).isEqualTo(fromEod.getMaxProfit());
+        assertThat(fromLever.getMaxLoss()).isEqualTo(fromEod.getMaxLoss());
+        assertThat(fromLever.getRiskReward()).isEqualTo(fromEod.getRiskReward());
+        assertThat(fromLever.getScore()).isEqualTo(fromEod.getScore());
+        assertThat(fromLever.getContracts()).isEqualTo(fromEod.getContracts());
+        assertThat(fromLever.getRationale()).isEqualTo(fromEod.getRationale());
+    }
+
+    /**
+     * Shared failure handling (AC6): if the engine throws mid-run, the batch
+     * record — on-demand here, identically for the scheduled kind — is marked
+     * FAILED with the error message, and the exception still propagates.
+     */
+    @Test
+    void aFailedRunIsMarkedFailedWithItsErrorAndRethrown() {
+        engineConfigs.deleteAll(); // no active engine config → run start throws
+
+        assertThatThrownBy(() -> runner.runOnDemand(new EngineRunRequest(null)))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(batchRuns.findAll()).singleElement().satisfies(run -> {
+            assertThat(run.getKind()).isEqualTo(EngineBatchKind.ON_DEMAND);
+            assertThat(run.getStatus()).isEqualTo(EngineBatchStatus.FAILED);
+            assertThat(run.getErrorMessage()).isNotBlank();
+            assertThat(run.getCompletedAt()).isEqualTo(AS_OF);
+        });
+    }
+
     @Test
     void scheduledRunUsesThePostCloseWeekdayCron() throws NoSuchMethodException {
-        Method method = EodEngineBatchRunner.class.getDeclaredMethod("scheduledRun");
+        Method method = EngineBatchRunner.class.getDeclaredMethod("scheduledRun");
         Scheduled scheduled = method.getAnnotation(Scheduled.class);
 
         assertThat(scheduled).isNotNull();
