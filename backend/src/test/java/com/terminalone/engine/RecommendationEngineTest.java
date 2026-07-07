@@ -438,4 +438,251 @@ class RecommendationEngineTest {
         verify(recommendationRepository, org.mockito.Mockito.times(3)).save(any());
         verifyNoMoreInteractions(recommendationRepository);
     }
+
+    /**
+     * AC7 — the other {@code WEAK_SIGNAL} branch: a *directional* signal whose
+     * conviction sits below the §3 trade floor abstains explicitly (the matrix
+     * maps no cell), with the floor spelled out in the detail. The signal was
+     * computed, so the snapshot is still emitted.
+     */
+    @Test
+    void directionalConvictionBelowTheTradeFloorAbstainsWithWeakSignal() {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(positionSource.listStocks()).thenReturn(List.of());
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
+                new PriceBar(TODAY.minusDays(1), 99.0, 101.0, 98.0, 100.0, 1_000_000),
+                new PriceBar(TODAY, 100.0, 102.0, 99.0, 101.0, 1_000_000)));
+        when(marketDataProvider.getDailyBars("AAPL")).thenReturn(history);
+        OptionChain chain = new OptionChain("AAPL", 100.0, AS_OF, true, List.of());
+        when(marketDataProvider.getChain("AAPL")).thenReturn(chain);
+
+        // Bullish, but conviction 30 < the default trade floor of 40.
+        DirectionSignal belowFloor = new DirectionSignal(
+                Direction.BULLISH, 30, 0.30, 0.4, 0.3, 0.2, 101.0, 100.0, 0.2, 52.0);
+        when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(belowFloor);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(new VolatilityRegimeResult(VolatilityRegime.NORMAL, "IV_RANK", 0.40));
+
+        EngineRunResponse response = runEngine(engineRunRequest);
+
+        assertThat(response.recommendations()).isEmpty();
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(AbstainReason.WEAK_SIGNAL.name());
+            assertThat(abstention.detail()).contains("conviction 30")
+                    .contains("trade floor of " + engineConfig.conviction().tradeFloor());
+        });
+        assertThat(emittedSnapshots).hasSize(1);
+        verifyNoInteractions(strategySelector, incomeOverlaySelector, recommendationRepository);
+    }
+
+    /**
+     * AC7 — §2 no-data abstain, price variant: a chain that exists but carries a
+     * non-positive underlying price is as unusable as a missing chain; the engine
+     * abstains {@code NO_MARKET_DATA} before any signal/regime work.
+     */
+    @Test
+    void chainWithNonPositiveUnderlyingPriceAbstainsWithNoMarketData() {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(positionSource.listStocks()).thenReturn(List.of());
+        when(positionSource.listOptions()).thenReturn(List.of());
+        when(marketDataProvider.getChain("AAPL"))
+                .thenReturn(new OptionChain("AAPL", 0.0, AS_OF, true, List.of()));
+
+        EngineRunResponse response = runEngine(engineRunRequest);
+
+        assertThat(response.recommendations()).isEmpty();
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(AbstainReason.NO_MARKET_DATA.name());
+        });
+        assertThat(emittedSnapshots).isEmpty();
+        verifyNoInteractions(technicalSignalCalculator, volatilityRegimeCalculator,
+                strategySelector, incomeOverlaySelector, recommendationRepository);
+    }
+
+    /**
+     * AC7 — vendor-failure isolation across the fan-out: one symbol's provider
+     * exception degrades to a {@code NO_MARKET_DATA} abstention for that symbol
+     * only; the rest of the portfolio still trades.
+     */
+    @Test
+    void vendorExceptionForOneSymbolAbstainsThatSymbolWithoutAbortingTheRun() throws Exception {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(positionSource.listStocks()).thenReturn(List.of(
+                new StockPosition("AAPL", new BigDecimal("100"), new BigDecimal("500.00"), TODAY),
+                new StockPosition("MSFT", new BigDecimal("100"), new BigDecimal("500.00"), TODAY)));
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        // AAPL's vendor call blows up mid-run.
+        when(marketDataProvider.getChain("AAPL")).thenThrow(new RuntimeException("vendor 500"));
+
+        // MSFT resolves to a full sized candidate.
+        PriceHistory history = new PriceHistory("MSFT", AS_OF, true, List.of(
+                new PriceBar(TODAY.minusDays(1), 99.0, 101.0, 98.0, 100.0, 1_000_000),
+                new PriceBar(TODAY, 100.0, 102.0, 99.0, 101.0, 1_000_000)));
+        when(marketDataProvider.getDailyBars("MSFT")).thenReturn(history);
+        DirectionSignal signal = new DirectionSignal(
+                Direction.BULLISH, 60, 0.75, 0.8, 0.7, 0.6, 102.0, 100.0, 0.5, 55.0);
+        when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(signal);
+        OptionChain chain = new OptionChain("MSFT", 100.0, AS_OF, true, List.of());
+        when(marketDataProvider.getChain("MSFT")).thenReturn(chain);
+        VolatilityRegimeResult regime = VolatilityRegimeResult.phase4Normal(null);
+        when(volatilityRegimeCalculator.calculate("MSFT", chain, history, engineConfig.regime()))
+                .thenReturn(regime);
+        RecommendationRationale rationale = new RecommendationRationale(
+                new RecommendationRationale.Signals(0.8, 0.7, 0.6, 0.75, 60, 102.0, 100.0, 0.5, 55.0),
+                new RecommendationRationale.Regime(VolatilityRegime.NORMAL, "PHASE4_SINGLE_CELL_NORMAL", null),
+                new RecommendationRationale.Selection("standard", 51, 0.55, 0.30, 0.55, 0.30),
+                new RecommendationRationale.Pricing(10.0, 3.50, 103.50, 0.72, 6.50, 350.0, 1.86, 1.34),
+                null);
+        RecommendationCandidate candidate = new RecommendationCandidate(
+                "MSFT", StrategyType.BULL_CALL_DEBIT_SPREAD, signal, regime, EXPIRY,
+                List.of(new RecommendationLeg("BUY", "MSFT-100C", CallPut.CALL, 100.0, EXPIRY,
+                                5.0, 5.20, 5.10, 0.55),
+                        new RecommendationLeg("SELL", "MSFT-110C", CallPut.CALL, 110.0, EXPIRY,
+                                1.50, 1.70, 1.60, 0.30)),
+                3.50, 0.72, 6.50, 350.0, 1.86, 85.0, 0, rationale);
+        when(strategySelector.selectWithRejections(
+                eq("MSFT"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
+                eq(chain), eq(engineConfig)))
+                .thenReturn(new CandidateSelection(Optional.of(candidate), List.of()));
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+        when(recommendationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Act — run over the whole portfolio.
+        EngineRunResponse response = runEngine(new EngineRunRequest(null));
+
+        assertThat(response.recommendations()).singleElement()
+                .satisfies(rec -> assertThat(rec.symbol()).isEqualTo("MSFT"));
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(AbstainReason.NO_MARKET_DATA.name());
+        });
+        verify(recommendationRepository).save(any());
+    }
+
+    /**
+     * AC7 — NEUTRAL × HIGH IV routes to the income overlay, and when nothing on
+     * the chain qualifies (selector returns empty) the symbol abstains with an
+     * explicit {@code NO_QUALIFYING_CANDIDATE}, never a silent drop.
+     */
+    @Test
+    void neutralHighIvWithNoQualifyingIncomeOverlayAbstainsWithNoQualifyingCandidate() {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        // 200 shares held → the covered-call arm is the one consulted.
+        when(positionSource.listStocks()).thenReturn(List.of(
+                new StockPosition("AAPL", new BigDecimal("200"), new BigDecimal("150.00"), TODAY)));
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
+                new PriceBar(TODAY.minusDays(1), 100.0, 100.5, 99.5, 100.0, 1_000_000),
+                new PriceBar(TODAY, 100.0, 100.5, 99.5, 100.0, 1_000_000)));
+        when(marketDataProvider.getDailyBars("AAPL")).thenReturn(history);
+        OptionChain chain = new OptionChain("AAPL", 100.0, AS_OF, true, List.of());
+        when(marketDataProvider.getChain("AAPL")).thenReturn(chain);
+
+        DirectionSignal neutral = new DirectionSignal(
+                Direction.NEUTRAL, 20, 0.05, 0.1, 0.0, 0.0, 100.0, 100.0, 0.0, 50.0);
+        when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(neutral);
+        VolatilityRegimeResult high = new VolatilityRegimeResult(VolatilityRegime.HIGH, "IV_RANK", 0.80);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(high);
+        when(incomeOverlaySelector.selectCoveredCall(eq("AAPL"), eq(neutral), eq(high), eq(chain),
+                eq(engineConfig), eq(200), org.mockito.ArgumentMatchers.anyDouble()))
+                .thenReturn(Optional.empty());
+
+        EngineRunResponse response = runEngine(engineRunRequest);
+
+        assertThat(response.recommendations()).isEmpty();
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(AbstainReason.NO_QUALIFYING_CANDIDATE.name());
+        });
+        verifyNoInteractions(strategySelector, recommendationRepository);
+    }
+
+    /**
+     * AC7 — the defensive tail of the guardrail bubble: if the selector comes
+     * back empty without recording any rejection, the abstention falls back to
+     * {@code NO_QUALIFYING_CANDIDATE} rather than inventing a guardrail reason.
+     */
+    @Test
+    void selectorEmptyWithoutRecordedRejectionsFallsBackToNoQualifyingCandidate() {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(positionSource.listStocks()).thenReturn(List.of());
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
+                new PriceBar(TODAY.minusDays(1), 99.0, 101.0, 98.0, 100.0, 1_000_000),
+                new PriceBar(TODAY, 101.0, 103.0, 100.0, 102.0, 1_000_000)));
+        when(marketDataProvider.getDailyBars("AAPL")).thenReturn(history);
+        OptionChain chain = new OptionChain("AAPL", 100.0, AS_OF, true, List.of());
+        when(marketDataProvider.getChain("AAPL")).thenReturn(chain);
+
+        DirectionSignal signal = new DirectionSignal(
+                Direction.BULLISH, 60, 0.75, 0.8, 0.7, 0.6, 102.0, 100.0, 0.5, 55.0);
+        when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(signal);
+        VolatilityRegimeResult regime = new VolatilityRegimeResult(VolatilityRegime.NORMAL, "IV_RANK", 0.40);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(regime);
+        when(strategySelector.selectWithRejections(
+                eq("AAPL"), eq(StrategyType.BULL_CALL_DEBIT_SPREAD), eq(signal), eq(regime),
+                eq(chain), eq(engineConfig)))
+                .thenReturn(new CandidateSelection(Optional.empty(), List.of()));
+
+        EngineRunResponse response = runEngine(engineRunRequest);
+
+        assertThat(response.recommendations()).isEmpty();
+        assertThat(response.abstentions()).singleElement().satisfies(abstention -> {
+            assertThat(abstention.symbol()).isEqualTo("AAPL");
+            assertThat(abstention.reason()).isEqualTo(AbstainReason.NO_QUALIFYING_CANDIDATE.name());
+        });
+        verifyNoInteractions(recommendationRepository);
+    }
+
+    /**
+     * AC7 — income eligibility at the engine seam: held shares aggregate across
+     * every long lot of the underlying (60 + 60 = 120 → eligible), while short
+     * lots are excluded from the count rather than netted (the positive-lot
+     * filter in {@code heldShares} is deliberate — a short position elsewhere
+     * must not block writing calls against shares actually held).
+     */
+    @Test
+    void coveredCallEligibilityAggregatesHeldSharesAcrossLotsAndIgnoresShortLots() {
+        when(engineConfigProvider.getActive()).thenReturn(activeEngineConfig);
+        when(positionSource.listStocks()).thenReturn(List.of(
+                new StockPosition("AAPL", new BigDecimal("60"), new BigDecimal("140.00"), TODAY),
+                new StockPosition("AAPL", new BigDecimal("60"), new BigDecimal("160.00"), TODAY),
+                new StockPosition("AAPL", new BigDecimal("-100"), new BigDecimal("150.00"), TODAY),
+                new StockPosition("MSFT", new BigDecimal("500"), new BigDecimal("300.00"), TODAY)));
+        when(positionSource.listOptions()).thenReturn(List.of());
+
+        PriceHistory history = new PriceHistory("AAPL", AS_OF, true, List.of(
+                new PriceBar(TODAY.minusDays(1), 100.0, 100.5, 99.5, 100.0, 1_000_000),
+                new PriceBar(TODAY, 100.0, 100.5, 99.5, 100.0, 1_000_000)));
+        when(marketDataProvider.getDailyBars("AAPL")).thenReturn(history);
+        OptionChain chain = new OptionChain("AAPL", 100.0, AS_OF, true, List.of());
+        when(marketDataProvider.getChain("AAPL")).thenReturn(chain);
+
+        DirectionSignal neutral = new DirectionSignal(
+                Direction.NEUTRAL, 20, 0.05, 0.1, 0.0, 0.0, 100.0, 100.0, 0.0, 50.0);
+        when(technicalSignalCalculator.calculate(eq(history), any())).thenReturn(neutral);
+        VolatilityRegimeResult high = new VolatilityRegimeResult(VolatilityRegime.HIGH, "IV_RANK", 0.80);
+        when(volatilityRegimeCalculator.calculate("AAPL", chain, history, engineConfig.regime()))
+                .thenReturn(high);
+        when(incomeOverlaySelector.selectCoveredCall(any(), any(), any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyDouble()))
+                .thenReturn(Optional.empty());
+
+        runEngine(engineRunRequest);
+
+        // 60 + 60 long, the -100 short lot ignored → 120 held shares, covered-call arm.
+        verify(incomeOverlaySelector).selectCoveredCall(eq("AAPL"), eq(neutral), eq(high),
+                eq(chain), eq(engineConfig), eq(120), org.mockito.ArgumentMatchers.anyDouble());
+        verify(incomeOverlaySelector, org.mockito.Mockito.never()).selectCashSecuredPut(
+                any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyDouble());
+    }
 }
