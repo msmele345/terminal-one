@@ -13,6 +13,10 @@ import com.terminalone.marketdata.OptionContract;
 import com.terminalone.marketdata.OptionInput;
 import com.terminalone.marketdata.PriceBar;
 import com.terminalone.marketdata.PriceHistory;
+import com.terminalone.portfolio.OptionPosition;
+import com.terminalone.portfolio.OptionPositionRepository;
+import com.terminalone.portfolio.OptionType;
+import com.terminalone.portfolio.PositionSide;
 import com.terminalone.portfolio.StockPosition;
 import com.terminalone.portfolio.StockPositionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,6 +67,9 @@ class EngineBatchRunnerTest {
 
     @Autowired
     private StockPositionRepository stocks;
+
+    @Autowired
+    private OptionPositionRepository options;
 
     @Autowired
     private IvHistoryRepository ivHistory;
@@ -246,6 +253,59 @@ class EngineBatchRunnerTest {
             assertThat(run.getErrorMessage()).isNotBlank();
             assertThat(run.getCompletedAt()).isEqualTo(AS_OF);
         });
+    }
+
+    /**
+     * Phase 6 AC7 — batch fan-out over a multi-symbol portfolio with mixed
+     * outcomes. Four underlyings (one sourced from an option-only position):
+     * AAPL trades, FLAT abstains {@code WEAK_SIGNAL}, MISS has no sourceable
+     * chain and BOOM's vendor call throws — both abstain {@code NO_MARKET_DATA}
+     * without aborting the run. The run record's counts and the per-symbol
+     * snapshots stay consistent: snapshots exist only for the symbols that
+     * reached signal/regime computation.
+     */
+    @Test
+    void batchFansOutOverEveryPortfolioUnderlyingWithMixedOutcomes() {
+        stocks.save(new StockPosition("AAPL", new BigDecimal("1000"), new BigDecimal("150.00"), TODAY));
+        stocks.save(new StockPosition("FLAT", new BigDecimal("100"), new BigDecimal("100.00"), TODAY));
+        stocks.save(new StockPosition("BOOM", new BigDecimal("50"), new BigDecimal("80.00"), TODAY));
+        // MISS enters the universe through an option leg only — symbolsFor unions
+        // stock symbols with option underlyings.
+        options.save(new OptionPosition("MISS", OptionType.CALL, new BigDecimal("100"), EXPIRY,
+                new BigDecimal("1"), new BigDecimal("5.00"), PositionSide.LONG, TODAY));
+        seedNormalIvRankHistory("AAPL");
+        seedNormalIvRankHistory("FLAT");
+        when(marketData.getDailyBars("AAPL")).thenReturn(bullishHistory("AAPL"));
+        when(marketData.getDailyBars("FLAT")).thenReturn(flatHistory("FLAT"));
+        when(marketData.getChain("AAPL")).thenReturn(normalIvChain("AAPL"));
+        when(marketData.getChain("FLAT")).thenReturn(normalIvChain("FLAT"));
+        when(marketData.getChain("MISS")).thenReturn(null);
+        when(marketData.getChain("BOOM")).thenThrow(new RuntimeException("vendor 500"));
+
+        EngineRunResponse response = runner.runOnDemand(new EngineRunRequest(null));
+
+        assertThat(response.recommendations()).singleElement()
+                .satisfies(rec -> assertThat(rec.symbol()).isEqualTo("AAPL"));
+        assertThat(response.abstentions())
+                .extracting(Abstention::symbol, Abstention::reason)
+                .containsExactlyInAnyOrder(
+                        org.assertj.core.groups.Tuple.tuple("FLAT", "WEAK_SIGNAL"),
+                        org.assertj.core.groups.Tuple.tuple("MISS", "NO_MARKET_DATA"),
+                        org.assertj.core.groups.Tuple.tuple("BOOM", "NO_MARKET_DATA"));
+
+        assertThat(batchRuns.findAll()).singleElement().satisfies(savedRun -> {
+            assertThat(savedRun.getStatus()).isEqualTo(EngineBatchStatus.COMPLETED);
+            assertThat(savedRun.getRecommendationCount()).isEqualTo(1);
+            assertThat(savedRun.getAbstentionCount()).isEqualTo(3);
+            assertThat(savedRun.getSignalSnapshotCount()).isEqualTo(2);
+            // Only AAPL and FLAT reached signal/regime computation; the two
+            // no-data symbols never produced a snapshot.
+            assertThat(signalSnapshots.findByBatchRunIdOrderBySymbolAsc(savedRun.getId()))
+                    .extracting(SignalSnapshot::getSymbol)
+                    .containsExactly("AAPL", "FLAT");
+        });
+        assertThat(recommendations.findAll()).singleElement()
+                .satisfies(rec -> assertThat(rec.getSymbol()).isEqualTo("AAPL"));
     }
 
     @Test
