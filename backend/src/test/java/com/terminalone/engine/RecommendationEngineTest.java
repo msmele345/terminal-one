@@ -30,6 +30,7 @@ import com.terminalone.engine.config.ActiveEngineConfig;
 import com.terminalone.engine.config.EngineConfig;
 import com.terminalone.engine.config.EngineConfigDefaults;
 import com.terminalone.engine.config.EngineConfigProvider;
+import com.terminalone.ledger.PaperTradeService;
 import com.terminalone.marketdata.CallPut;
 import com.terminalone.marketdata.MarketDataProvider;
 import com.terminalone.marketdata.OptionChain;
@@ -71,6 +72,9 @@ class RecommendationEngineTest {
 
     @Mock
     private RecommendationRepository recommendationRepository;
+
+    @Mock
+    private PaperTradeService paperTradeService;
 
     @Mock
     private ObjectMapper objectMapper;
@@ -208,6 +212,7 @@ class RecommendationEngineTest {
 
         // Assert — persistence was invoked
         verify(recommendationRepository).save(any());
+        verify(paperTradeService).createForRecommendation(saved);
     }
 
     @Test

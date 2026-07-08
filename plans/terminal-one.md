@@ -177,7 +177,7 @@ Close the trust loop. Every recommendation logs to the paper-trade ledger; an EO
 
 ### Acceptance criteria
 
-- [ ] Each recommendation creates a paper-trade entry; the EOD settlement job updates open paper trades and records realized/unrealized P&L.
+- [x] Each recommendation creates a paper-trade entry; the EOD settlement job updates open paper trades and records realized/unrealized P&L. *(New `paper_trades` schema (`V11`) plus `PaperTrade`/`PaperTradeRepository`/`PaperTradeService`/`PaperTradeSettlementJob`: every saved recommendation now creates one idempotent OPEN paper-trade row through the shared engine path, linked to the producing recommendation and carrying `config_version`, expiry, contracts, and entry debit. The post-close settlement job (`${app.ledger.settlement-cron:0 0 17 * * MON-FRI}`, America/New_York) marks open rows from current option-chain mids before expiry and settles expired rows from intrinsic value, recording unrealized or realized P&L using the engine's signed `entryDebit` convention. Tests: `EngineBatchRunnerTest` asserts recommendation→paper-trade creation through the EOD/on-demand path; `PaperTradeSettlementServiceTest` pins open-mark P&L, expired intrinsic settlement P&L, and the settlement cron. Verification: `mvn -f backend/pom.xml test` green, 260 tests.)*
 - [ ] Ledger screen lists recommendations with status + outcomes and aggregate track-record stats; can group/filter by `config_version`.
 - [ ] "Mark as taken" moves a rec to `taken_positions` with a manually entered fill price; reflected as a real position.
 - [ ] `POST /api/backtest/signal` runs the directional signal over historical bars for a symbol and returns hit-rate/return summary.

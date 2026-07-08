@@ -2,6 +2,8 @@ package com.terminalone.engine;
 
 import com.terminalone.engine.config.EngineConfigRepository;
 import com.terminalone.engine.config.EngineConfigSeeder;
+import com.terminalone.ledger.PaperTrade;
+import com.terminalone.ledger.PaperTradeRepository;
 import com.terminalone.marketdata.BlackScholesOptionAnalytics;
 import com.terminalone.marketdata.CallPut;
 import com.terminalone.marketdata.IvHistory;
@@ -32,6 +34,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
@@ -83,6 +86,9 @@ class EngineBatchRunnerTest {
     @Autowired
     private SignalSnapshotRepository signalSnapshots;
 
+    @Autowired
+    private PaperTradeRepository paperTrades;
+
     @MockitoBean
     private MarketDataProvider marketData;
 
@@ -132,6 +138,16 @@ class EngineBatchRunnerTest {
         assertThat(recommendations.findAll()).singleElement().satisfies(savedRecommendation -> {
             assertThat(savedRecommendation.getSymbol()).isEqualTo("AAPL");
             assertThat(savedRecommendation.getBatchRunId()).isEqualTo(result.id());
+        });
+        assertThat(paperTrades.findAll()).singleElement().satisfies(paperTrade -> {
+            Recommendation savedRecommendation = recommendations.findAll().getFirst();
+            assertThat(paperTrade.getRecommendation().getId()).isEqualTo(savedRecommendation.getId());
+            assertThat(paperTrade.getSymbol()).isEqualTo("AAPL");
+            assertThat(paperTrade.getConfigVersion()).isEqualTo(savedRecommendation.getConfigVersion());
+            assertThat(paperTrade.getContracts()).isEqualTo(savedRecommendation.getContracts());
+            assertThat(paperTrade.getEntryDebit()).isEqualByComparingTo(
+                    BigDecimal.valueOf(savedRecommendation.getEntryDebit()).setScale(4, RoundingMode.HALF_UP));
+            assertThat(paperTrade.getStatus()).isEqualTo(PaperTrade.Status.OPEN);
         });
 
         assertThat(signalSnapshots.findByBatchRunIdOrderBySymbolAsc(result.id()))
