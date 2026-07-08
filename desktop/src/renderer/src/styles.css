@@ -79,6 +79,40 @@ body {
   letter-spacing: 1px;
 }
 
+/* ---- Screen nav (Phase 7 AC5) ----
+   Conventional terminal tabs — no animation, no casino styling. The metaphor
+   lives only on the Slot Machine screen this nav leads to. */
+.screen-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.screen-tab {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.screen-tab:hover {
+  color: var(--text);
+  border-color: var(--edge);
+}
+
+.screen-tab[aria-current='page'] {
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+  border-color: var(--edge);
+  background: rgba(0, 245, 212, 0.06);
+}
+
 /* ---- Stage ---- */
 .stage {
   flex: 1;
@@ -650,6 +684,8 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* The tumble loops on transform only; hint a compositor layer (AC4). */
+  will-change: transform;
 }
 
 .reel-glyph {
@@ -674,6 +710,7 @@ body {
 }
 
 .jackpot-banner {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -688,6 +725,17 @@ body {
   letter-spacing: 3px;
   text-transform: uppercase;
   text-shadow: 0 0 10px rgba(255, 181, 71, 0.5);
+}
+
+/* The pulsing payout glow: a static box-shadow whose *opacity* animates, so
+   the pulse never repaints — compositor-only (Phase 7 AC4). */
+.jackpot-glow {
+  position: absolute;
+  inset: -1px;
+  border-radius: 999px;
+  box-shadow: 0 0 26px rgba(255, 181, 71, 0.55);
+  pointer-events: none;
+  will-change: opacity;
 }
 
 .jackpot-glyphs {
@@ -975,7 +1023,8 @@ body {
   .reel-strip,
   .lever-arm,
   .reel-result,
-  .jackpot-banner {
+  .jackpot-banner,
+  .jackpot-glow {
     animation: none !important;
     transform: none !important;
   }

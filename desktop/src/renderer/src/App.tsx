@@ -5,8 +5,15 @@ import { SlotMachine } from './engine/SlotMachine'
 
 type View = 'loading' | 'login' | 'authed'
 
+// Phase 7 AC5 (D18): Portfolio Console and Slot Machine are separate screens —
+// only one renders at a time, so the casino metaphor stays confined to the
+// recommendation moment and the terminal panels stay conventional. Phase 8
+// adds the Ledger screen here.
+type Screen = 'console' | 'slotMachine'
+
 export default function App(): JSX.Element {
   const [view, setView] = useState<View>('loading')
+  const [screen, setScreen] = useState<Screen>('console')
   const [, setPayload] = useState<WhoamiPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,7 +39,12 @@ export default function App(): JSX.Element {
 
   return (
     <div className="app">
-      <Header authed={view === 'authed'} onLogout={refresh} />
+      <Header
+        authed={view === 'authed'}
+        screen={screen}
+        onNavigate={setScreen}
+        onLogout={refresh}
+      />
       <main className={view === 'authed' ? 'stage stage-wide' : 'stage'}>
         {view === 'loading' && <p className="muted">Booting terminal…</p>}
         {view === 'login' && (
@@ -45,12 +57,7 @@ export default function App(): JSX.Element {
             }}
           />
         )}
-        {view === 'authed' && (
-          <>
-            <PortfolioConsole />
-            <SlotMachine />
-          </>
-        )}
+        {view === 'authed' && (screen === 'console' ? <PortfolioConsole /> : <SlotMachine />)}
       </main>
       <footer className="disclaimer">
         Personal tool — not financial advice. Advisory &amp; tracking only.
@@ -59,7 +66,22 @@ export default function App(): JSX.Element {
   )
 }
 
-function Header({ authed, onLogout }: { authed: boolean; onLogout: () => void }): JSX.Element {
+const SCREENS: Array<{ id: Screen; label: string }> = [
+  { id: 'console', label: 'Console' },
+  { id: 'slotMachine', label: 'Slot Machine' }
+]
+
+function Header({
+  authed,
+  screen,
+  onNavigate,
+  onLogout
+}: {
+  authed: boolean
+  screen: Screen
+  onNavigate: (screen: Screen) => void
+  onLogout: () => void
+}): JSX.Element {
   const handleLogout = async (): Promise<void> => {
     await window.api.logout()
     onLogout()
@@ -71,6 +93,21 @@ function Header({ authed, onLogout }: { authed: boolean; onLogout: () => void })
         <span className="brand-name">TERMINAL&nbsp;ONE</span>
         <span className="brand-tag">walking skeleton · v0.1</span>
       </div>
+      {authed && (
+        <nav className="screen-nav" aria-label="Screens">
+          {SCREENS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className="screen-tab"
+              aria-current={screen === s.id ? 'page' : undefined}
+              onClick={() => onNavigate(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </nav>
+      )}
       {authed && (
         <button className="ghost-btn" onClick={handleLogout}>
           Log out
@@ -129,7 +166,7 @@ function LoginCard({
       </label>
       {error && <p className="error">{error}</p>}
       <button className="primary-btn" type="submit" disabled={busy || !username || !password}>
-        {busy ? 'Authenticating…' : 'Pull the lever'}
+        {busy ? 'Authenticating…' : 'Sign in'}
       </button>
     </form>
   )

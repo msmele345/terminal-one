@@ -215,27 +215,48 @@ function ReelResult({
 }
 
 // AC2: a distinct payout that fires when the reels land on a High-conviction
-// trade — the slot-machine's "you hit it" moment. Decorative, so aria-hidden;
-// the badged card carries the meaning for assistive tech.
+// trade — the slot-machine's "you hit it" moment. AC4: the banner's entry is a
+// finite scale/opacity pop and the ongoing pulse animates only the opacity of
+// a dedicated glow layer (its box-shadow is static CSS), so the payout stays
+// compositor-only and can't jank the reels. Glyphs/glow are decorative, so
+// aria-hidden; the badged card carries the meaning for assistive tech.
 function JackpotBanner({ reducedMotion }: { reducedMotion: boolean }): JSX.Element {
+  if (reducedMotion) {
+    return (
+      <div className="jackpot-banner" data-testid="jackpot" role="status">
+        <JackpotBannerBody />
+      </div>
+    )
+  }
   return (
     <motion.div
       className="jackpot-banner"
       data-testid="jackpot"
       role="status"
-      initial={reducedMotion ? false : { scale: 0.9, opacity: 0 }}
-      animate={
-        reducedMotion
-          ? undefined
-          : { scale: 1, opacity: 1, boxShadow: ['0 0 0 rgba(255,181,71,0)', '0 0 26px rgba(255,181,71,0.55)', '0 0 12px rgba(255,181,71,0.3)'] }
-      }
-      transition={{ duration: 0.6, repeat: reducedMotion ? 0 : Infinity, repeatType: 'reverse' }}
+      initial={{ scale: 0.9, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
     >
+      <motion.span
+        className="jackpot-glow"
+        data-testid="jackpot-glow"
+        aria-hidden="true"
+        animate={{ opacity: [0.35, 1] }}
+        transition={{ duration: 0.6, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }}
+      />
+      <JackpotBannerBody />
+    </motion.div>
+  )
+}
+
+function JackpotBannerBody(): JSX.Element {
+  return (
+    <>
       <span className="jackpot-glyphs" aria-hidden="true">
         ★ ★ ★
       </span>
       <span className="jackpot-text">JACKPOT — high-conviction setup</span>
-    </motion.div>
+    </>
   )
 }
 
