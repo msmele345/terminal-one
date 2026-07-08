@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { RecommendationsPanel } from './RecommendationsPanel'
+import { SlotMachine } from './SlotMachine'
 import type { EngineRunResult, Recommendation } from '../../../preload'
 
 function sampleRec(overrides: Partial<Recommendation> = {}): Recommendation {
@@ -93,16 +93,150 @@ function installEngineApi(run: ReturnType<typeof vi.fn>): void {
   window.api = { engine: { run } }
 }
 
-describe('RecommendationsPanel', () => {
+// A promise we resolve by hand, to hold the machine in its "spinning" state.
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((r) => (resolve = r))
+  return { promise, resolve }
+}
+
+describe('SlotMachine', () => {
   beforeEach(() => {
     installEngineApi(vi.fn())
   })
 
-  it('prompts to run before any engine run, showing no recommendations yet', () => {
-    render(<RecommendationsPanel />)
-    expect(screen.getByRole('button', { name: /run engine/i })).toBeInTheDocument()
+  it('prompts to pull the lever before any run, showing no recommendations yet', () => {
+    render(<SlotMachine />)
+    expect(screen.getByRole('button', { name: /pull the lever/i })).toBeInTheDocument()
     expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
     expect(screen.queryByTestId('engine-empty')).not.toBeInTheDocument()
+  })
+
+  // ---- Phase 7 AC1 ----
+
+  it('pulling the lever triggers the engine run', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it('spins the reels while the run is in flight, then settles onto the results', async () => {
+    const user = userEvent.setup()
+    const gate = deferred<{ ok: true; data: EngineRunResult }>()
+    const run = vi.fn(() => gate.promise)
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    // Mid-run: reels are spinning and no result cards exist yet.
+    expect(screen.getAllByTestId('reel-spinning').length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
+
+    // Engine resolves → reels settle onto the recommendation cards.
+    gate.resolve({ ok: true, data: { recommendations: [sampleRec()] } })
+    expect(await screen.findByTestId('recommendation')).toBeInTheDocument()
+    expect(screen.queryByTestId('reel-spinning')).not.toBeInTheDocument()
+  })
+
+  it('resolves the reels onto every returned top-N recommendation, in order', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        recommendations: [
+          sampleRec({ id: 1, symbol: 'MSFT' }),
+          sampleRec({ id: 2, symbol: 'TSLA' }),
+          sampleRec({ id: 3, symbol: 'NVDA' })
+        ]
+      }
+    }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    const cards = await screen.findAllByTestId('recommendation')
+    expect(cards).toHaveLength(3)
+    expect(cards.map((c) => within(c).getByText(/^(MSFT|TSLA|NVDA)$/).textContent)).toEqual([
+      'MSFT',
+      'TSLA',
+      'NVDA'
+    ])
+  })
+
+  // ---- Phase 7 AC2 ----
+
+  it('fires a distinct jackpot payout for a high-conviction recommendation', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({
+      ok: true as const,
+      data: { recommendations: [sampleRec({ conviction: 88 })] }
+    }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    expect(await screen.findByTestId('jackpot')).toBeInTheDocument()
+    expect(screen.getByTestId('jackpot-badge')).toBeInTheDocument()
+  })
+
+  it('does not fire a jackpot for ordinary-conviction recommendations', async () => {
+    const user = userEvent.setup()
+    // sampleRec defaults to conviction 72 — below the High band (≥ 80).
+    const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    await screen.findByTestId('recommendation')
+    expect(screen.queryByTestId('jackpot')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('jackpot-badge')).not.toBeInTheDocument()
+  })
+
+  it('marks only the high-conviction cards when a run mixes conviction levels', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        recommendations: [
+          sampleRec({ id: 1, symbol: 'NVDA', conviction: 92 }),
+          sampleRec({ id: 2, symbol: 'AAPL', conviction: 61 })
+        ]
+      }
+    }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    expect(await screen.findByTestId('jackpot')).toBeInTheDocument()
+    const badges = screen.getAllByTestId('jackpot-badge')
+    expect(badges).toHaveLength(1)
+    // The lone badge sits on the NVDA reel, not the ordinary-conviction AAPL one.
+    const badgedReel = badges[0].closest('.reel-result') as HTMLElement
+    expect(within(badgedReel).getByText('NVDA')).toBeInTheDocument()
+  })
+
+  it('resolves to a calm no-trade state with no jackpot when the engine abstains', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [] } }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    const empty = await screen.findByTestId('engine-empty')
+    expect(empty).toHaveTextContent(/no trade/i)
+    expect(screen.queryByTestId('jackpot')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('reel-spinning')).not.toBeInTheDocument()
   })
 
   it('lists returned recommendations with their key trade fields on run', async () => {
@@ -115,8 +249,8 @@ describe('RecommendationsPanel', () => {
     )
     installEngineApi(run)
 
-    render(<RecommendationsPanel />)
-    await user.click(screen.getByRole('button', { name: /run engine/i }))
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
     expect(within(card).getByText('AAPL')).toBeInTheDocument()
@@ -131,8 +265,8 @@ describe('RecommendationsPanel', () => {
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
     installEngineApi(run)
 
-    render(<RecommendationsPanel />)
-    await user.click(screen.getByRole('button', { name: /run engine/i }))
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
     expect(within(card).queryByTestId('rationale')).not.toBeInTheDocument()
@@ -189,8 +323,8 @@ describe('RecommendationsPanel', () => {
     }))
     installEngineApi(run)
 
-    render(<RecommendationsPanel />)
-    await user.click(screen.getByRole('button', { name: /run engine/i }))
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
     expect(within(card).getByText(/covered call/i)).toBeInTheDocument()
@@ -243,8 +377,8 @@ describe('RecommendationsPanel', () => {
     }))
     installEngineApi(run)
 
-    render(<RecommendationsPanel />)
-    await user.click(screen.getByRole('button', { name: /run engine/i }))
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
     expect(within(card).getByText(/cash secured put/i)).toBeInTheDocument()
@@ -279,8 +413,8 @@ describe('RecommendationsPanel', () => {
     }))
     installEngineApi(run)
 
-    render(<RecommendationsPanel />)
-    await user.click(screen.getByRole('button', { name: /run engine/i }))
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
     expect(within(card).getByText(/earnings not screened/i)).toBeInTheDocument()
@@ -308,8 +442,8 @@ describe('RecommendationsPanel', () => {
     }))
     installEngineApi(run)
 
-    render(<RecommendationsPanel />)
-    await user.click(screen.getByRole('button', { name: /run engine/i }))
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const abstentions = await screen.findByTestId('engine-abstentions')
     expect(within(abstentions).getByText('TSLA')).toBeInTheDocument()
@@ -325,8 +459,8 @@ describe('RecommendationsPanel', () => {
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [] } }))
     installEngineApi(run)
 
-    render(<RecommendationsPanel />)
-    await user.click(screen.getByRole('button', { name: /run engine/i }))
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     expect(await screen.findByTestId('engine-empty')).toBeInTheDocument()
     expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
@@ -337,8 +471,8 @@ describe('RecommendationsPanel', () => {
     const run = vi.fn(async () => ({ ok: false as const, error: 'Session expired' }))
     installEngineApi(run)
 
-    render(<RecommendationsPanel />)
-    await user.click(screen.getByRole('button', { name: /run engine/i }))
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     await waitFor(() => expect(screen.getByText('Session expired')).toBeInTheDocument())
     expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()

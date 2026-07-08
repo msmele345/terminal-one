@@ -1,100 +1,10 @@
 import { useState } from 'react'
-import type { EngineAbstention, Recommendation, RecommendationRationale } from '../../../preload'
+import type { Recommendation, RecommendationRationale } from '../../../preload'
 
-type RunState = 'idle' | 'running' | 'done' | 'error'
-
-// Phase 4: the lever-pull as a plain list (the slot machine arrives in Phase 7).
-// Runs the deterministic engine over the portfolio and renders each returned
-// recommendation with its structured rationale; abstain/empty renders cleanly.
-export function RecommendationsPanel(): JSX.Element {
-  const [state, setState] = useState<RunState>('idle')
-  const [recs, setRecs] = useState<Recommendation[]>([])
-  const [abstentions, setAbstentions] = useState<EngineAbstention[]>([])
-  const [error, setError] = useState<string | null>(null)
-
-  const run = async (): Promise<void> => {
-    setState('running')
-    setError(null)
-    const res = await window.api.engine.run()
-    if (res.ok) {
-      setRecs(res.data.recommendations)
-      setAbstentions(res.data.abstentions ?? [])
-      setState('done')
-    } else {
-      setError(res.error)
-      setState('error')
-    }
-  }
-
-  return (
-    <section className="console engine-console" data-testid="recommendations">
-      <div className="console-bar">
-        <h1 className="console-title">RECOMMENDATIONS</h1>
-        <div className="console-actions">
-          <button className="primary-btn inline" onClick={run} disabled={state === 'running'}>
-            {state === 'running' ? 'Running…' : 'Run engine'}
-          </button>
-        </div>
-      </div>
-
-      {error && <p className="error">{error}</p>}
-
-      {state === 'idle' && (
-        <p className="muted">
-          Pull the lever to run the deterministic engine over your portfolio and surface
-          defined-risk options recommendations.
-        </p>
-      )}
-
-      {state === 'running' && <p className="muted">Running the engine…</p>}
-
-      {state === 'done' && recs.length === 0 && abstentions.length === 0 && (
-        <div className="empty-state" data-testid="engine-empty">
-          <p className="empty-glyph">✧</p>
-          <p>No trade.</p>
-          <p className="muted">
-            The engine abstained — no qualifying setup across your portfolio right now.
-          </p>
-        </div>
-      )}
-
-      {state === 'done' && recs.length > 0 && (
-        <div className="rec-list">
-          {recs.map((r) => (
-            <RecommendationCard key={r.id} rec={r} />
-          ))}
-        </div>
-      )}
-
-      {state === 'done' && abstentions.length > 0 && (
-        <Abstentions abstentions={abstentions} />
-      )}
-    </section>
-  )
-}
-
-// Phase 6 AC3: the engine returns an explicit reason for every underlying it
-// passed on, so "no trade" is auditable rather than a silent gap.
-function Abstentions({ abstentions }: { abstentions: EngineAbstention[] }): JSX.Element {
-  return (
-    <div className="abstentions" data-testid="engine-abstentions">
-      <p className="muted abstentions-title">
-        No trade on {abstentions.length} underlying{abstentions.length > 1 ? 's' : ''} — here&apos;s why:
-      </p>
-      <ul className="abstention-list">
-        {abstentions.map((a) => (
-          <li key={a.symbol} className="abstention" data-testid="abstention">
-            <span className="neon abstention-symbol">{a.symbol}</span>
-            <span className="tag">{formatLabel(a.reason)}</span>
-            <span className="muted abstention-detail">{a.detail}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function RecommendationCard({ rec }: { rec: Recommendation }): JSX.Element {
+// Shared presentation for a single engine recommendation: the summary card plus
+// its expandable structured rationale. Extracted so both the plain list and the
+// Phase 7 slot-machine reels render results identically.
+export function RecommendationCard({ rec }: { rec: Recommendation }): JSX.Element {
   const [open, setOpen] = useState(false)
   return (
     <article className="panel rec-card" data-testid="recommendation">
@@ -304,7 +214,7 @@ function hasWarning(rec: Recommendation, label: string): boolean {
 }
 
 // Snake-cased engine labels (CAPS_UPSIDE_ABOVE_STRIKE, REQUIRES_CASH_COLLATERAL) → Title Case.
-function formatLabel(label: string): string {
+export function formatLabel(label: string): string {
   return label
     .toLowerCase()
     .split('_')
