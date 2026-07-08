@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { WhoamiPayload } from '../../preload'
 import { PortfolioConsole } from './portfolio/PortfolioConsole'
-import { RecommendationsPanel } from './engine/RecommendationsPanel'
+import { SlotMachine } from './engine/SlotMachine'
 
 type View = 'loading' | 'login' | 'authed'
 
@@ -48,7 +48,7 @@ export default function App(): JSX.Element {
         {view === 'authed' && (
           <>
             <PortfolioConsole />
-            <RecommendationsPanel />
+            <SlotMachine />
           </>
         )}
       </main>
