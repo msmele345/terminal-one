@@ -239,6 +239,88 @@ describe('SlotMachine', () => {
     expect(screen.queryByTestId('reel-spinning')).not.toBeInTheDocument()
   })
 
+  // ---- Phase 7 AC3 ----
+
+  it('expands a reel result to the full rationale — signals, regime, strikes, POP, risk/reward, and sizing', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    // Strikes, POP and reward:risk sit on the settled reel's card face…
+    const card = await screen.findByTestId('recommendation')
+    expect(within(card).getByText('190.00 CALL')).toBeInTheDocument()
+    expect(within(card).getByText('200.00 CALL')).toBeInTheDocument()
+    expect(within(card).getByText('58%')).toBeInTheDocument()
+    expect(within(card).getByText('1.04 : 1')).toBeInTheDocument()
+
+    // …and expanding reveals every structured rationale group with its values.
+    await user.click(within(card).getByRole('button', { name: /why/i }))
+    const rationale = within(card).getByTestId('rationale')
+    expect(within(rationale).getByRole('heading', { name: 'Signal' })).toBeInTheDocument()
+    expect(within(rationale).getByText('58.3')).toBeInTheDocument() // RSI
+    expect(within(rationale).getByText('191.20 / 185.40')).toBeInTheDocument() // EMA fast/slow
+    expect(within(rationale).getByRole('heading', { name: 'Regime' })).toBeInTheDocument()
+    expect(within(rationale).getByText('NORMAL IV')).toBeInTheDocument()
+    expect(within(rationale).getByRole('heading', { name: 'Selection' })).toBeInTheDocument()
+    expect(within(rationale).getByText('0.55 / 0.55')).toBeInTheDocument() // long Δ target/actual
+    expect(within(rationale).getByText('0.28 / 0.30')).toBeInTheDocument() // short Δ target/actual
+    expect(within(rationale).getByRole('heading', { name: 'Pricing' })).toBeInTheDocument()
+    expect(within(rationale).getByText('$194.90')).toBeInTheDocument() // breakeven
+    expect(within(rationale).getByRole('heading', { name: 'Sizing' })).toBeInTheDocument()
+    expect(within(rationale).getByText('$3,430.00')).toBeInTheDocument() // risk per trade
+    expect(within(rationale).getByText('$150,000.00')).toBeInTheDocument() // portfolio value
+  })
+
+  it('expands each reel result independently of the others', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        recommendations: [sampleRec({ id: 1, symbol: 'MSFT' }), sampleRec({ id: 2, symbol: 'TSLA' })]
+      }
+    }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    const cards = await screen.findAllByTestId('recommendation')
+    expect(cards).toHaveLength(2)
+
+    // Expanding the second reel opens only the second reel's rationale.
+    await user.click(within(cards[1]).getByRole('button', { name: /why/i }))
+    expect(screen.getAllByTestId('rationale')).toHaveLength(1)
+    expect(within(cards[1]).getByTestId('rationale')).toBeInTheDocument()
+    expect(within(cards[0]).queryByTestId('rationale')).not.toBeInTheDocument()
+
+    // The first expands (and stays) independently.
+    await user.click(within(cards[0]).getByRole('button', { name: /why/i }))
+    expect(screen.getAllByTestId('rationale')).toHaveLength(2)
+  })
+
+  // ---- Phase 7 AC4 ----
+
+  it('pulses the jackpot glow on a dedicated opacity layer, not the banner itself', async () => {
+    const user = userEvent.setup()
+    const run = vi.fn(async () => ({
+      ok: true as const,
+      data: { recommendations: [sampleRec({ conviction: 88 })] }
+    }))
+    installEngineApi(run)
+
+    render(<SlotMachine />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    // The infinite pulse lives on a decorative glow layer that animates opacity
+    // only (box-shadow stays static CSS), so the payout is compositor-friendly.
+    const banner = await screen.findByTestId('jackpot')
+    const glow = within(banner).getByTestId('jackpot-glow')
+    expect(glow).toHaveAttribute('aria-hidden', 'true')
+  })
+
   it('lists returned recommendations with their key trade fields on run', async () => {
     const user = userEvent.setup()
     const run = vi.fn(
