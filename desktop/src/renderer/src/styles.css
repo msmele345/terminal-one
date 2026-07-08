@@ -79,6 +79,40 @@ body {
   letter-spacing: 1px;
 }
 
+/* ---- Screen nav (Phase 7 AC5) ----
+   Conventional terminal tabs — no animation, no casino styling. The metaphor
+   lives only on the Slot Machine screen this nav leads to. */
+.screen-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.screen-tab {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.screen-tab:hover {
+  color: var(--text);
+  border-color: var(--edge);
+}
+
+.screen-tab[aria-current='page'] {
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+  border-color: var(--edge);
+  background: rgba(0, 245, 212, 0.06);
+}
+
 /* ---- Stage ---- */
 .stage {
   flex: 1;
