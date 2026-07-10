@@ -239,6 +239,51 @@ export interface EngineRunResult {
   abstentions?: EngineAbstention[]
 }
 
+// ---- Ledger (Phase 8): paper-trade track record ----
+
+export type RecommendationStatus = 'PAPER' | 'TAKEN'
+export type TradeStatus = 'OPEN' | 'SETTLED'
+
+export interface LedgerEntry {
+  id: number
+  recommendationId: number
+  symbol: string
+  strategy: StrategyType
+  direction: Direction
+  conviction: number
+  recommendationStatus: RecommendationStatus
+  tradeStatus: TradeStatus
+  configVersion: number
+  expiry: string
+  contracts: number
+  entryDebit: number // signed: >0 debit paid, <0 credit received
+  markDebit: number | null
+  unrealizedPnl: number
+  realizedPnl: number
+  openedAt: string
+  lastMarkedAt: string | null
+  closedAt: string | null
+}
+
+export interface LedgerStats {
+  totalTrades: number
+  openTrades: number
+  settledTrades: number
+  wins: number
+  losses: number
+  hitRate: number | null // null until any trade settles
+  realizedPnl: number
+  unrealizedPnl: number
+  totalPnl: number
+}
+
+export interface LedgerPayload {
+  entries: LedgerEntry[]
+  stats: LedgerStats
+  configVersion: number | null // echo of applied filter
+  configVersions: number[] // all versions with ledger history, ascending
+}
+
 // Request shape sent to the backend; option-only fields omitted for stock.
 export interface PositionRequest {
   kind: 'STOCK' | 'OPTION'
@@ -281,6 +326,10 @@ const api = {
     // whole portfolio; pass one to scope the run to a single underlying.
     run: (symbol?: string): Promise<ApiResult<EngineRunResult>> =>
       ipcRenderer.invoke('engine:run', symbol)
+  },
+  ledger: {
+    list: (configVersion?: number): Promise<ApiResult<LedgerPayload>> =>
+      ipcRenderer.invoke('ledger:list', configVersion)
   }
 }
 

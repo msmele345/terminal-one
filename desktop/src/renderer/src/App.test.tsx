@@ -62,6 +62,27 @@ function installFakeApi(loggedIn: boolean): void {
     },
     engine: {
       run: vi.fn(async () => ({ ok: true as const, data: { recommendations: [], abstentions: [] } }))
+    },
+    ledger: {
+      list: vi.fn(async () => ({
+        ok: true as const,
+        data: {
+          entries: [],
+          stats: {
+            totalTrades: 0,
+            openTrades: 0,
+            settledTrades: 0,
+            wins: 0,
+            losses: 0,
+            hitRate: null,
+            realizedPnl: 0,
+            unrealizedPnl: 0,
+            totalPnl: 0
+          },
+          configVersion: null,
+          configVersions: []
+        }
+      }))
     }
   }
 }
@@ -88,9 +109,11 @@ describe('App screens (Phase 7 AC5)', () => {
     const nav = screen.getByRole('navigation', { name: 'Screens' })
     const consoleTab = within(nav).getByRole('button', { name: 'Console' })
     const slotMachineTab = within(nav).getByRole('button', { name: 'Slot Machine' })
+    const ledgerTab = within(nav).getByRole('button', { name: 'Ledger' })
 
     expect(consoleTab).toHaveAttribute('aria-current', 'page')
     expect(slotMachineTab).not.toHaveAttribute('aria-current', 'page')
+    expect(ledgerTab).not.toHaveAttribute('aria-current', 'page')
   })
 
   it('switches to the Slot Machine screen and back, never showing both', async () => {
@@ -109,6 +132,25 @@ describe('App screens (Phase 7 AC5)', () => {
 
     await waitFor(() => expect(screen.getByText('PORTFOLIO CONSOLE')).toBeInTheDocument())
     expect(screen.queryByTestId('slot-machine')).toBeNull()
+  })
+
+  it('switches to the Ledger screen, showing only that screen', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText('PORTFOLIO CONSOLE')).toBeInTheDocument())
+
+    const nav = screen.getByRole('navigation', { name: 'Screens' })
+    await user.click(within(nav).getByRole('button', { name: 'Ledger' }))
+
+    await waitFor(() => expect(screen.getByText('LEDGER')).toBeInTheDocument())
+    expect(screen.queryByText('PORTFOLIO CONSOLE')).toBeNull()
+    expect(screen.queryByTestId('slot-machine')).toBeNull()
+
+    await user.click(within(nav).getByRole('button', { name: 'Console' }))
+
+    await waitFor(() => expect(screen.getByText('PORTFOLIO CONSOLE')).toBeInTheDocument())
+    expect(screen.queryByText('LEDGER')).toBeNull()
   })
 })
 

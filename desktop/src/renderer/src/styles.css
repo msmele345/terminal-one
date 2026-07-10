@@ -619,6 +619,22 @@ body {
   font-size: 12px;
 }
 
+/* ---- Ledger (Phase 8) ---- */
+.ledger-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.ledger-filter span {
+  margin-bottom: 0;
+}
+
+.ledger-filter select {
+  width: auto;
+}
+
 /* ---- Recommendations (Phase 4) ---- */
 /* ---- Slot machine (Phase 7) ---- */
 .slot-machine {

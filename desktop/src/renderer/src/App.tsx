@@ -2,14 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import type { WhoamiPayload } from '../../preload'
 import { PortfolioConsole } from './portfolio/PortfolioConsole'
 import { SlotMachine } from './engine/SlotMachine'
+import { LedgerScreen } from './ledger/LedgerScreen'
 
 type View = 'loading' | 'login' | 'authed'
 
-// Phase 7 AC5 (D18): Portfolio Console and Slot Machine are separate screens —
-// only one renders at a time, so the casino metaphor stays confined to the
-// recommendation moment and the terminal panels stay conventional. Phase 8
-// adds the Ledger screen here.
-type Screen = 'console' | 'slotMachine'
+// Phase 7 AC5 (D18): Portfolio Console, Slot Machine, and Ledger are separate
+// screens — only one renders at a time, so the casino metaphor stays confined
+// to the recommendation moment and the terminal panels stay conventional.
+type Screen = 'console' | 'slotMachine' | 'ledger'
 
 export default function App(): JSX.Element {
   const [view, setView] = useState<View>('loading')
@@ -57,7 +57,7 @@ export default function App(): JSX.Element {
             }}
           />
         )}
-        {view === 'authed' && (screen === 'console' ? <PortfolioConsole /> : <SlotMachine />)}
+        {view === 'authed' && renderScreen(screen)}
       </main>
       <footer className="disclaimer">
         Personal tool — not financial advice. Advisory &amp; tracking only.
@@ -68,8 +68,21 @@ export default function App(): JSX.Element {
 
 const SCREENS: Array<{ id: Screen; label: string }> = [
   { id: 'console', label: 'Console' },
-  { id: 'slotMachine', label: 'Slot Machine' }
+  { id: 'slotMachine', label: 'Slot Machine' },
+  { id: 'ledger', label: 'Ledger' }
 ]
+
+function renderScreen(screen: Screen): JSX.Element {
+  switch (screen) {
+    case 'slotMachine':
+      return <SlotMachine />
+    case 'ledger':
+      return <LedgerScreen />
+    case 'console':
+    default:
+      return <PortfolioConsole />
+  }
+}
 
 function Header({
   authed,
