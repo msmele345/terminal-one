@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.terminalone.engine.config.ActiveEngineConfig;
 import com.terminalone.engine.config.EngineConfig;
 import com.terminalone.engine.config.EngineConfigProvider;
+import com.terminalone.ledger.PaperTradeService;
 import com.terminalone.marketdata.MarketDataProvider;
 import com.terminalone.marketdata.OptionChain;
 import com.terminalone.marketdata.PriceHistory;
@@ -40,6 +41,7 @@ public class RecommendationEngine {
     private final DirectionalStrategySelector strategySelector;
     private final IncomeOverlaySelector incomeOverlaySelector;
     private final RecommendationRepository recommendations;
+    private final PaperTradeService paperTrades;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -56,6 +58,7 @@ public class RecommendationEngine {
             DirectionalStrategySelector strategySelector,
             IncomeOverlaySelector incomeOverlaySelector,
             RecommendationRepository recommendations,
+            PaperTradeService paperTrades,
             ObjectMapper objectMapper,
             Clock clock) {
         this.configProvider = configProvider;
@@ -66,6 +69,7 @@ public class RecommendationEngine {
         this.strategySelector = strategySelector;
         this.incomeOverlaySelector = incomeOverlaySelector;
         this.recommendations = recommendations;
+        this.paperTrades = paperTrades;
         this.objectMapper = objectMapper;
         this.clock = clock;
     }
@@ -102,6 +106,7 @@ public class RecommendationEngine {
         List<RecommendationResponse> emitted = new ArrayList<>();
         for (RecommendationCandidate candidate : ranked) {
             Recommendation saved = recommendations.save(toEntity(candidate, active.version(), batchRunId));
+            paperTrades.createForRecommendation(saved);
             emitted.add(RecommendationResponse.from(saved, candidate));
         }
         return new EngineRunResponse(emitted, abstentions);

@@ -159,6 +159,11 @@ async function runEngine(symbol?: string) {
   })
 }
 
+async function ledgerList(configVersion?: number) {
+  const query = configVersion != null ? `?configVersion=${configVersion}` : ''
+  return authedFetch(`/api/ledger${query}`)
+}
+
 function registerIpc(): void {
   ipcMain.handle('auth:login', (_e, username: string, password: string) => login(username, password))
   ipcMain.handle('auth:whoami', () => whoami())
@@ -172,6 +177,7 @@ function registerIpc(): void {
   ipcMain.handle('positions:import', (_e, csv: string) => importPositions(csv))
   ipcMain.handle('marketdata:history', (_e, symbol: string) => marketDataHistory(symbol))
   ipcMain.handle('engine:run', (_e, symbol?: string) => runEngine(symbol))
+  ipcMain.handle('ledger:list', (_e, configVersion?: number) => ledgerList(configVersion))
 }
 
 app.whenReady().then(() => {
