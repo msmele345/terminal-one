@@ -14,6 +14,12 @@ type RunState = 'idle' | 'running' | 'done' | 'error'
 // flight; the resolved cards are however many the engine actually returns.
 const REEL_COUNT = 3
 
+// The engine (esp. under the stub profile) can resolve in a few hundred ms —
+// too fast to register as a "pull". We hold the reels spinning for at least this
+// long so the tumble is always visible, decoupled from backend latency. Tests
+// override with 0 to settle instantly.
+const DEFAULT_MIN_SPIN_MS = 1400
+
 // A recommendation in the "High" conviction band (strategy-matrix §3, 80–100) is
 // the jackpot: the payout animation fires and the card is badged.
 const JACKPOT_CONVICTION = 80
@@ -21,7 +27,11 @@ const JACKPOT_CONVICTION = 80
 // Glyphs the reels tumble through while spinning — casino-meets-ticker.
 const REEL_GLYPHS = ['$', '▲', '▼', '◆', '★', '7', '↑', '↓', '⬢']
 
-export function SlotMachine(): JSX.Element {
+export function SlotMachine({
+  minSpinMs = DEFAULT_MIN_SPIN_MS
+}: {
+  minSpinMs?: number
+} = {}): JSX.Element {
   const [state, setState] = useState<RunState>('idle')
   const [recs, setRecs] = useState<Recommendation[]>([])
   const [abstentions, setAbstentions] = useState<EngineAbstention[]>([])
@@ -34,7 +44,12 @@ export function SlotMachine(): JSX.Element {
     setError(null)
     setRecs([])
     setAbstentions([])
+    const started = Date.now()
     const res = await window.api.engine.run()
+    // Keep the reels tumbling until the guaranteed spin window has elapsed, so a
+    // fast engine response doesn't rob the pull of its animation.
+    const remaining = minSpinMs - (Date.now() - started)
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining))
     if (res.ok) {
       setRecs(res.data.recommendations)
       setAbstentions(res.data.abstentions ?? [])
@@ -123,7 +138,7 @@ function Lever({
       <span className="lever-track" aria-hidden="true">
         <motion.span
           className="lever-arm"
-          animate={reducedMotion ? undefined : { y: spinning ? 46 : 0 }}
+          animate={reducedMotion ? undefined : { y: spinning ? 64 : 0 }}
           transition={{ type: 'spring', stiffness: 500, damping: 22 }}
         >
           <span className="lever-knob" />

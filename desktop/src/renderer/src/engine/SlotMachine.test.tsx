@@ -106,7 +106,7 @@ describe('SlotMachine', () => {
   })
 
   it('prompts to pull the lever before any run, showing no recommendations yet', () => {
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     expect(screen.getByRole('button', { name: /pull the lever/i })).toBeInTheDocument()
     expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
     expect(screen.queryByTestId('engine-empty')).not.toBeInTheDocument()
@@ -119,7 +119,7 @@ describe('SlotMachine', () => {
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     expect(run).toHaveBeenCalledTimes(1)
@@ -131,7 +131,7 @@ describe('SlotMachine', () => {
     const run = vi.fn(() => gate.promise)
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     // Mid-run: reels are spinning and no result cards exist yet.
@@ -158,7 +158,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const cards = await screen.findAllByTestId('recommendation')
@@ -180,7 +180,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     expect(await screen.findByTestId('jackpot')).toBeInTheDocument()
@@ -193,7 +193,7 @@ describe('SlotMachine', () => {
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     await screen.findByTestId('recommendation')
@@ -214,7 +214,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     expect(await screen.findByTestId('jackpot')).toBeInTheDocument()
@@ -230,7 +230,7 @@ describe('SlotMachine', () => {
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [] } }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const empty = await screen.findByTestId('engine-empty')
@@ -246,7 +246,7 @@ describe('SlotMachine', () => {
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     // Strikes, POP and reward:risk sit on the settled reel's card face…
@@ -284,7 +284,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const cards = await screen.findAllByTestId('recommendation')
@@ -311,7 +311,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     // The infinite pulse lives on a decorative glow layer that animates opacity
@@ -331,7 +331,7 @@ describe('SlotMachine', () => {
     )
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
@@ -347,7 +347,7 @@ describe('SlotMachine', () => {
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
@@ -405,7 +405,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
@@ -459,7 +459,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
@@ -495,7 +495,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
@@ -524,7 +524,7 @@ describe('SlotMachine', () => {
     }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const abstentions = await screen.findByTestId('engine-abstentions')
@@ -541,7 +541,7 @@ describe('SlotMachine', () => {
     const run = vi.fn(async () => ({ ok: true as const, data: { recommendations: [] } }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     expect(await screen.findByTestId('engine-empty')).toBeInTheDocument()
@@ -553,7 +553,7 @@ describe('SlotMachine', () => {
     const run = vi.fn(async () => ({ ok: false as const, error: 'Session expired' }))
     installEngineApi(run)
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     await waitFor(() => expect(screen.getByText('Session expired')).toBeInTheDocument())
