@@ -1,0 +1,55 @@
+name: CI
+
+# Test gate (D12): backend tests + desktop build/lint/typecheck on PRs and pushes.
+# Deploys are handled by Railway's native GitHub integration (auto-deploy on push
+# to the connected branch), not by this workflow. See docs/deploy-railway.md.
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    name: Backend (Spring Boot tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+          cache: maven
+      - name: Run tests (engine unit tests are the gate)
+        run: mvn -B test
+
+  desktop:
+    name: Desktop (lint + typecheck + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install keytar native deps
+        run: sudo apt-get update && sudo apt-get install -y libsecret-1-dev
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test (renderer UI tests)
+        run: npm test
+      - name: Build (electron-vite bundle)
+        run: npm run build

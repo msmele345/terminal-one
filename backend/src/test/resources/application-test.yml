@@ -1,0 +1,26 @@
+# Test profile: in-memory H2 in PostgreSQL-compatibility mode, schema from JPA,
+# Flyway off. Keeps the test gate fast and Docker-free. Postgres-specific
+# migrations are exercised by integration tests in later phases.
+spring:
+  datasource:
+    url: jdbc:h2:mem:terminalone-${random.uuid};MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+
+app:
+  jwt:
+    secret: test-secret-key-that-is-at-least-thirty-two-bytes-long-000
+    expiration-minutes: 60
+    issuer: terminal-one-test
+  seed-user:
+    username: testuser
+    password: testpass

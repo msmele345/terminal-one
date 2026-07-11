@@ -1,0 +1,1091 @@
+:root {
+  --bg: #0a0a12;
+  --bg-panel: #12121f;
+  --bg-input: #0d0d18;
+  --grid: rgba(0, 255, 200, 0.04);
+  --edge: #1f2233;
+  --neon-cyan: #00f5d4;
+  --neon-magenta: #ff2e97;
+  --neon-amber: #ffb547;
+  --text: #d7dbe8;
+  --muted: #6b7088;
+  --danger: #ff4d6d;
+  --gain: #2bff88;
+  --glow-cyan: 0 0 8px rgba(0, 245, 212, 0.6), 0 0 18px rgba(0, 245, 212, 0.25);
+  --glow-gain: 0 0 8px rgba(43, 255, 136, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, 'Menlo', monospace;
+  color: var(--text);
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ---- Top bar ---- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--edge);
+  background: linear-gradient(180deg, rgba(255, 46, 151, 0.06), transparent);
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.brand-mark {
+  color: var(--neon-magenta);
+  text-shadow: 0 0 10px rgba(255, 46, 151, 0.7);
+  font-size: 18px;
+}
+
+.brand-name {
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+.brand-tag {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+
+/* ---- Screen nav (Phase 7 AC5) ----
+   Conventional terminal tabs — no animation, no casino styling. The metaphor
+   lives only on the Slot Machine screen this nav leads to. */
+.screen-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.screen-tab {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.screen-tab:hover {
+  color: var(--text);
+  border-color: var(--edge);
+}
+
+.screen-tab[aria-current='page'] {
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+  border-color: var(--edge);
+  background: rgba(0, 245, 212, 0.06);
+}
+
+/* ---- Stage ---- */
+.stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.card {
+  width: 380px;
+  background: var(--bg-panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  padding: 30px 28px 26px;
+  box-shadow:
+    0 0 0 1px rgba(0, 245, 212, 0.08),
+    0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.card-title {
+  margin: 0 0 22px;
+  font-size: 15px;
+  letter-spacing: 5px;
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+.field {
+  display: block;
+  margin-bottom: 16px;
+}
+
+.field span {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.field input {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.field input:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.primary-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--neon-magenta);
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(255, 46, 151, 0.18), rgba(255, 46, 151, 0.06));
+  color: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.05s;
+}
+
+.primary-btn:hover:not(:disabled) {
+  box-shadow: 0 0 14px rgba(255, 46, 151, 0.55);
+}
+
+.primary-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.primary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ghost-btn {
+  background: transparent;
+  border: 1px solid var(--edge);
+  color: var(--muted);
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.ghost-btn:hover {
+  color: var(--text);
+  border-color: var(--neon-cyan);
+}
+
+/* ---- Readout ---- */
+.readout {
+  margin: 0 0 18px;
+}
+
+.readout > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--edge);
+}
+
+.readout dt {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.readout dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.neon {
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+.mono {
+  color: var(--neon-amber);
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 0 0 14px;
+  text-shadow: 0 0 8px rgba(255, 77, 109, 0.4);
+}
+
+/* ---- Stage variants ---- */
+.stage-wide {
+  display: block;
+  place-items: unset;
+  align-items: stretch;
+  overflow-y: auto;
+}
+
+/* ---- Portfolio Console ---- */
+.console {
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+.console-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.console-title {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 5px;
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+.console-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.primary-btn.inline {
+  width: auto;
+  margin-top: 0;
+  padding: 8px 16px;
+}
+
+.notice {
+  margin: 0 0 14px;
+  color: var(--neon-amber);
+}
+
+/* ---- Empty state ---- */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  border: 1px dashed var(--edge);
+  border-radius: 10px;
+  background: var(--bg-panel);
+}
+
+.empty-glyph {
+  font-size: 40px;
+  color: var(--neon-magenta);
+  text-shadow: 0 0 14px rgba(255, 46, 151, 0.5);
+  margin: 0 0 8px;
+}
+
+/* ---- Tables ---- */
+.tables {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  padding: 16px 18px 6px;
+}
+
+.panel-title {
+  margin: 0 0 12px;
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: var(--muted);
+}
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.grid th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.grid td {
+  padding: 9px 10px;
+  border-bottom: 1px dashed var(--edge);
+}
+
+.grid .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.row-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--neon-cyan);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.link-btn:hover {
+  text-shadow: var(--glow-cyan);
+}
+
+.link-btn.danger {
+  color: var(--danger);
+}
+
+/* ---- Modal ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 4, 10, 0.72);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+}
+
+.card.modal {
+  width: 460px;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.kind-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.toggle {
+  flex: 1;
+  padding: 9px;
+  background: var(--bg-input);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.toggle.on {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.field-row {
+  display: flex;
+  gap: 12px;
+}
+
+.field-row .field {
+  flex: 1;
+}
+
+.field select {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.field select:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* ---- P&L (Phase 3) ---- */
+.gain {
+  color: var(--gain);
+  text-shadow: var(--glow-gain);
+}
+
+.loss {
+  color: var(--danger);
+  text-shadow: 0 0 8px rgba(255, 77, 109, 0.35);
+}
+
+/* An unpriced row reads as inert: no market data, so no neon. */
+.unpriced td {
+  color: var(--muted);
+}
+
+.unpriced .neon {
+  color: var(--muted);
+  text-shadow: none;
+}
+
+/* ---- Totals bar ---- */
+.totals-bar {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.stat-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stat-value {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.totals-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tag {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--edge);
+}
+
+.tag.delayed {
+  color: var(--neon-amber);
+  border-color: rgba(255, 181, 71, 0.4);
+}
+
+.tag.warn {
+  color: var(--danger);
+  border-color: rgba(255, 77, 109, 0.4);
+}
+
+/* ---- Price-history chart panel ---- */
+.chart-panel {
+  margin-top: 22px;
+  padding-bottom: 16px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.panel-head .panel-title {
+  margin: 0;
+}
+
+.symbol-chips {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  font-size: 11px;
+  letter-spacing: 1px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--bg-input);
+  border: 1px solid var(--edge);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.chip:hover {
+  color: var(--text);
+  border-color: var(--neon-cyan);
+}
+
+.chip-active {
+  color: var(--neon-cyan);
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan);
+}
+
+.price-chart-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.price-chart-canvas {
+  width: 100%;
+  height: 260px;
+}
+
+.price-chart-msg {
+  height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+/* ---- Ledger (Phase 8) ---- */
+.ledger-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.ledger-filter span {
+  margin-bottom: 0;
+}
+
+.ledger-filter select {
+  width: auto;
+}
+
+/* ---- Recommendations (Phase 4) ---- */
+/* ---- Slot machine (Phase 7) ---- */
+.slot-machine {
+  margin-top: 30px;
+}
+
+/* The cabinet: reels stacked above the pull lever. */
+.slot-cabinet {
+  position: relative;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  padding: 22px 22px 22px;
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(255, 46, 151, 0.08), transparent 60%),
+    var(--bg-panel);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 245, 212, 0.05),
+    0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+.reels {
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* While a run is in flight, the reels sit side by side and tumble. */
+.reels:has(.reel) {
+  flex-direction: row;
+  justify-content: center;
+  align-items: stretch;
+}
+
+.slot-prompt {
+  display: grid;
+  place-items: center;
+  min-height: 132px;
+  margin: 0;
+  text-align: center;
+}
+
+.reel {
+  flex: 1 1 0;
+  max-width: 200px;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  background: var(--bg-input);
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.6);
+}
+
+.reel-window {
+  height: 132px;
+  overflow: hidden;
+  display: flex;
+  justify-content: center;
+  /* Fade the top and bottom so glyphs tumble out of view like a real reel. */
+  -webkit-mask-image: linear-gradient(transparent, #000 26%, #000 74%, transparent);
+  mask-image: linear-gradient(transparent, #000 26%, #000 74%, transparent);
+}
+
+.reel-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* The tumble loops on transform only; hint a compositor layer (AC4). */
+  will-change: transform;
+}
+
+.reel-glyph {
+  height: 44px;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  color: var(--neon-cyan);
+  text-shadow: var(--glow-cyan);
+}
+
+.reel-result {
+  width: 100%;
+}
+
+/* ---- Jackpot payout (Phase 7 AC2) ---- */
+.slot-cabinet.is-jackpot {
+  border-color: rgba(255, 181, 71, 0.5);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 181, 71, 0.12),
+    0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+.jackpot-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 0 auto 18px;
+  padding: 10px 20px;
+  border: 1px solid rgba(255, 181, 71, 0.55);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 181, 71, 0.16), rgba(255, 181, 71, 0.04));
+  color: var(--neon-amber);
+  font-size: 13px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(255, 181, 71, 0.5);
+}
+
+/* The pulsing payout glow: a static box-shadow whose *opacity* animates, so
+   the pulse never repaints — compositor-only (Phase 7 AC4). */
+.jackpot-glow {
+  position: absolute;
+  inset: -1px;
+  border-radius: 999px;
+  box-shadow: 0 0 26px rgba(255, 181, 71, 0.55);
+  pointer-events: none;
+  will-change: opacity;
+}
+
+.jackpot-glyphs {
+  letter-spacing: 4px;
+}
+
+/* A jackpot result stands apart from ordinary reels. */
+.reel-result.jackpot {
+  position: relative;
+}
+
+.reel-result.jackpot .rec-card {
+  border-color: rgba(255, 181, 71, 0.5);
+  box-shadow: 0 0 20px rgba(255, 181, 71, 0.18);
+}
+
+.jackpot-badge {
+  position: absolute;
+  top: -9px;
+  right: 14px;
+  z-index: 1;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--neon-amber);
+  color: #1a1205;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  box-shadow: 0 0 12px rgba(255, 181, 71, 0.6);
+}
+
+.rec-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rec-card {
+  padding: 16px 18px;
+}
+
+.rec-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.rec-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.rec-symbol {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.rec-strategy {
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+
+.rec-conviction {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.rec-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  padding: 12px 0;
+  border-top: 1px solid var(--edge);
+  border-bottom: 1px dashed var(--edge);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.metric-label {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.metric-value {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.rec-legs {
+  list-style: none;
+  margin: 12px 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rec-leg {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.leg-action {
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--edge);
+}
+
+.leg-action.buy {
+  color: var(--gain);
+  border-color: rgba(43, 255, 136, 0.4);
+}
+
+.leg-action.sell {
+  color: var(--neon-magenta);
+  border-color: rgba(255, 46, 151, 0.4);
+}
+
+.leg-contract {
+  color: var(--neon-amber);
+}
+
+.rec-why {
+  margin-top: 10px;
+}
+
+/* ---- Rationale drill-down ---- */
+.rationale {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--edge);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.rationale-title {
+  margin: 0 0 8px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--neon-cyan);
+}
+
+.rationale-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rationale-reason {
+  margin: 4px 0 0;
+}
+
+/* ---- Abstentions (Phase 6 AC3: explicit "no trade" reasons) ---- */
+.abstentions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--edge);
+}
+
+.abstentions-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.abstention-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.abstention {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.abstention-symbol {
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+.abstention-detail {
+  font-size: 12px;
+}
+
+/* ---- Pull lever ----
+   The centerpiece of the rec moment: a bold neon arm you want to yank. Sized up
+   and glowing, with an idle breathing pulse that invites the pull. */
+.lever {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin: 30px auto 4px;
+  padding: 16px 38px 16px 18px;
+  background: linear-gradient(180deg, rgba(255, 46, 151, 0.22), rgba(255, 46, 151, 0.06));
+  border: 2px solid rgba(255, 46, 151, 0.65);
+  border-radius: 999px;
+  color: var(--neon-magenta);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(255, 46, 151, 0.55);
+  cursor: pointer;
+  box-shadow:
+    0 0 22px rgba(255, 46, 151, 0.35),
+    inset 0 0 18px rgba(255, 46, 151, 0.12);
+  animation: lever-breathe 2.4s ease-in-out infinite;
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.1s ease,
+    border-color 0.15s ease;
+}
+
+@keyframes lever-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 20px rgba(255, 46, 151, 0.28),
+      inset 0 0 16px rgba(255, 46, 151, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 40px rgba(255, 46, 151, 0.55),
+      inset 0 0 22px rgba(255, 46, 151, 0.18);
+  }
+}
+
+.lever:hover:not(:disabled) {
+  border-color: var(--neon-magenta);
+  box-shadow:
+    0 0 46px rgba(255, 46, 151, 0.65),
+    inset 0 0 22px rgba(255, 46, 151, 0.2);
+  transform: scale(1.03);
+}
+
+.lever:active:not(:disabled) {
+  transform: translateY(2px) scale(0.99);
+}
+
+.lever:disabled {
+  cursor: default;
+  color: var(--muted);
+  border-color: var(--edge);
+  text-shadow: none;
+  box-shadow: none;
+  animation: none;
+}
+
+.lever-track {
+  position: relative;
+  width: 30px;
+  height: 96px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #0b0b12, var(--bg-input));
+  border: 2px solid var(--edge);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.7);
+}
+
+.lever-arm {
+  position: absolute;
+  top: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: block;
+}
+
+.lever-knob {
+  display: block;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #ffb3d9, var(--neon-magenta) 65%, #b3005e);
+  box-shadow:
+    0 0 20px rgba(255, 46, 151, 0.85),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.lever-label {
+  min-width: 130px;
+  text-align: left;
+}
+
+/* Respect reduced-motion: hold the reels and lever still. */
+@media (prefers-reduced-motion: reduce) {
+  .lever,
+  .reel-strip,
+  .lever-arm,
+  .reel-result,
+  .jackpot-banner,
+  .jackpot-glow {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* ---- Disclaimer ---- */
+.disclaimer {
+  text-align: center;
+  padding: 10px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  border-top: 1px solid var(--edge);
+}
