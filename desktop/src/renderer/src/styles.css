@@ -968,53 +968,84 @@ body {
   font-size: 12px;
 }
 
-/* ---- Pull lever ---- */
+/* ---- Pull lever ----
+   The centerpiece of the rec moment: a bold neon arm you want to yank. Sized up
+   and glowing, with an idle breathing pulse that invites the pull. */
 .lever {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin: 20px auto 0;
-  padding: 10px 22px 10px 12px;
-  background: linear-gradient(180deg, rgba(255, 46, 151, 0.12), rgba(255, 46, 151, 0.03));
-  border: 1px solid rgba(255, 46, 151, 0.4);
+  gap: 22px;
+  margin: 30px auto 4px;
+  padding: 16px 38px 16px 18px;
+  background: linear-gradient(180deg, rgba(255, 46, 151, 0.22), rgba(255, 46, 151, 0.06));
+  border: 2px solid rgba(255, 46, 151, 0.65);
   border-radius: 999px;
   color: var(--neon-magenta);
   font-family: inherit;
-  font-size: 13px;
-  letter-spacing: 3px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 4px;
   text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(255, 46, 151, 0.55);
   cursor: pointer;
+  box-shadow:
+    0 0 22px rgba(255, 46, 151, 0.35),
+    inset 0 0 18px rgba(255, 46, 151, 0.12);
+  animation: lever-breathe 2.4s ease-in-out infinite;
   transition:
     box-shadow 0.15s ease,
-    transform 0.1s ease;
+    transform 0.1s ease,
+    border-color 0.15s ease;
+}
+
+@keyframes lever-breathe {
+  0%,
+  100% {
+    box-shadow:
+      0 0 20px rgba(255, 46, 151, 0.28),
+      inset 0 0 16px rgba(255, 46, 151, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 40px rgba(255, 46, 151, 0.55),
+      inset 0 0 22px rgba(255, 46, 151, 0.18);
+  }
 }
 
 .lever:hover:not(:disabled) {
-  box-shadow: 0 0 18px rgba(255, 46, 151, 0.4);
+  border-color: var(--neon-magenta);
+  box-shadow:
+    0 0 46px rgba(255, 46, 151, 0.65),
+    inset 0 0 22px rgba(255, 46, 151, 0.2);
+  transform: scale(1.03);
 }
 
 .lever:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(2px) scale(0.99);
 }
 
 .lever:disabled {
   cursor: default;
   color: var(--muted);
   border-color: var(--edge);
+  text-shadow: none;
+  box-shadow: none;
+  animation: none;
 }
 
 .lever-track {
   position: relative;
-  width: 20px;
-  height: 58px;
+  width: 30px;
+  height: 96px;
   border-radius: 999px;
-  background: var(--bg-input);
-  border: 1px solid var(--edge);
+  background: linear-gradient(180deg, #0b0b12, var(--bg-input));
+  border: 2px solid var(--edge);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.7);
 }
 
 .lever-arm {
   position: absolute;
-  top: 4px;
+  top: 5px;
   left: 50%;
   transform: translateX(-50%);
   display: block;
@@ -1022,20 +1053,23 @@ body {
 
 .lever-knob {
   display: block;
-  width: 16px;
-  height: 16px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #ff7ac0, var(--neon-magenta));
-  box-shadow: 0 0 12px rgba(255, 46, 151, 0.7);
+  background: radial-gradient(circle at 34% 28%, #ffb3d9, var(--neon-magenta) 65%, #b3005e);
+  box-shadow:
+    0 0 20px rgba(255, 46, 151, 0.85),
+    0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .lever-label {
-  min-width: 70px;
+  min-width: 130px;
   text-align: left;
 }
 
 /* Respect reduced-motion: hold the reels and lever still. */
 @media (prefers-reduced-motion: reduce) {
+  .lever,
   .reel-strip,
   .lever-arm,
   .reel-result,
