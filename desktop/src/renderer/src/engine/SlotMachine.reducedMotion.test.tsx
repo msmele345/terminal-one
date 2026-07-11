@@ -117,7 +117,7 @@ describe('SlotMachine under prefers-reduced-motion', () => {
     const gate = deferred<{ ok: true; data: EngineRunResult }>()
     installEngineApi(vi.fn(() => gate.promise))
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     // The reels render but do not tumble, and the lever arm does not swing.
@@ -139,7 +139,7 @@ describe('SlotMachine under prefers-reduced-motion', () => {
       }))
     )
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     // Results land as plain, static elements.
@@ -159,7 +159,7 @@ describe('SlotMachine under prefers-reduced-motion', () => {
       vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
     )
 
-    render(<SlotMachine />)
+    render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
     const card = await screen.findByTestId('recommendation')
