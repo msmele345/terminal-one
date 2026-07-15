@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { describe, it, beforeEach, vi, expect } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import { PositionModal } from "./PositionModal";
 import { PortfolioSummary, PositionRequest, PriceHistory, StockSummary } from "../../../preload";
 
@@ -76,8 +76,9 @@ describe('PositionModal', () => {
 
   it('shows the empty-state when there are no positions', async () => {
     render(<PositionModal onClose={vi.fn()} onSaved={vi.fn()} onError={vi.fn()} />)
-  });
 
+    expect(screen.getByText('NEW POSITION')).toBeInTheDocument()
+  });
 });
 
 

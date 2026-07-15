@@ -164,6 +164,18 @@ async function ledgerList(configVersion?: number) {
   return authedFetch(`/api/ledger${query}`)
 }
 
+async function takeRecommendation(id: number, fillPrice: number) {
+  return authedFetch(`/api/recommendations/${id}/take`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ fillPrice })
+  })
+}
+
+async function takenPositions() {
+  return authedFetch('/api/recommendations/taken')
+}
+
 function registerIpc(): void {
   ipcMain.handle('auth:login', (_e, username: string, password: string) => login(username, password))
   ipcMain.handle('auth:whoami', () => whoami())
@@ -178,6 +190,10 @@ function registerIpc(): void {
   ipcMain.handle('marketdata:history', (_e, symbol: string) => marketDataHistory(symbol))
   ipcMain.handle('engine:run', (_e, symbol?: string) => runEngine(symbol))
   ipcMain.handle('ledger:list', (_e, configVersion?: number) => ledgerList(configVersion))
+  ipcMain.handle('recommendations:take', (_e, id: number, fillPrice: number) =>
+    takeRecommendation(id, fillPrice)
+  )
+  ipcMain.handle('recommendations:taken', () => takenPositions())
 }
 
 app.whenReady().then(() => {

@@ -174,6 +174,14 @@ public class Recommendation {
         this.createdAt = createdAt;
     }
 
+    /**
+     * Promote this recommendation to a real, taken position (Phase 8 AC3, FR-18).
+     * Idempotency/duplicate-take guarding is the caller's responsibility.
+     */
+    public void markTaken() {
+        this.status = RecommendationStatus.TAKEN;
+    }
+
     public Long getId() {
         return id;
     }
