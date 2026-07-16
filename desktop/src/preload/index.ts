@@ -284,6 +284,21 @@ export interface LedgerPayload {
   configVersions: number[] // all versions with ledger history, ascending
 }
 
+// ---- Taken positions (Phase 8 AC3): the real-positions tracker ----
+
+export interface TakenPosition {
+  id: number
+  recommendationId: number
+  symbol: string
+  strategy: StrategyType
+  direction: Direction
+  configVersion: number
+  expiry: string
+  contracts: number
+  fillPrice: number // signed net fill: >0 debit paid, <0 credit received
+  takenAt: string
+}
+
 // Request shape sent to the backend; option-only fields omitted for stock.
 export interface PositionRequest {
   kind: 'STOCK' | 'OPTION'
@@ -330,6 +345,13 @@ const api = {
   ledger: {
     list: (configVersion?: number): Promise<ApiResult<LedgerPayload>> =>
       ipcRenderer.invoke('ledger:list', configVersion)
+  },
+  recommendations: {
+    // Phase 8 AC3: promote a recommendation to a real, taken position with the
+    // manually entered net fill price.
+    take: (id: number, fillPrice: number): Promise<ApiResult<TakenPosition>> =>
+      ipcRenderer.invoke('recommendations:take', id, fillPrice),
+    taken: (): Promise<ApiResult<TakenPosition[]>> => ipcRenderer.invoke('recommendations:taken')
   }
 }
 

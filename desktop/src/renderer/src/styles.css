@@ -398,6 +398,26 @@ body {
   color: var(--danger);
 }
 
+.link-btn.muted {
+  color: var(--muted);
+}
+
+/* Inline "mark as taken" control (Phase 8 AC3) */
+.take-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.take-action input {
+  width: 84px;
+}
+
+.take-error {
+  font-size: 11px;
+}
+
 /* ---- Modal ---- */
 .modal-backdrop {
   position: fixed;

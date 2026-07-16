@@ -83,6 +83,12 @@ function installFakeApi(loggedIn: boolean): void {
           configVersions: []
         }
       }))
+    },
+    recommendations: {
+      // Never invoked by the App screen tests; a failure-shaped stub keeps the
+      // ApiResult<TakenPosition> contract without fabricating a full row.
+      take: vi.fn(async () => ({ ok: false as const, error: 'stub' })),
+      taken: vi.fn(async () => ({ ok: true as const, data: [] }))
     }
   }
 }
