@@ -195,11 +195,23 @@ Production-ready finish. A single minimal native desktop notification after the 
 
 ### Acceptance criteria
 
-- [ ] One native desktop notification fires after the EOD batch and opens the Slot Machine on click; no other alert noise.
+- [x] One native desktop notification fires after the EOD batch and opens the Slot Machine on click; no other alert noise. *(Backend: `GET /api/engine/eod/latest` (`EngineRunController` → `EngineBatchRunner.latestEodSummary()`) summarizes the latest **SCHEDULED_EOD** batch — status, timestamps, `recommendationCount`, and the batch's top-conviction rec (`RecommendationRepository.findFirstByBatchRunIdOrderByConvictionDescScoreDesc`); 204 until the first scheduled batch ever runs, and ON_DEMAND lever pulls are deliberately excluded so in-app runs never become alert noise. Desktop: pure `EodBatchWatcher` (`src/main/eodNotifier.ts`, unit-testable — no electron imports) polls that endpoint every 5 min from the main process and fires **exactly one** native `Notification` per newly completed batch with recs — body per D20: "N new recommendations · Top conviction: X (conv)". No-noise rules: the first batch seen after app start baselines silently (reopening never replays old batches), zero-rec/failed batches advance the baseline without notifying, a RUNNING batch waits for its terminal status, and fetch failures/logged-out polls skip quietly. Clicking the notification restores+focuses the window and deep-links into the Slot Machine via a new `nav:open-slot-machine` IPC push exposed as `window.api.navigation.onOpenSlotMachine` (preload returns an unsubscribe); `App` subscribes and switches to the Slot Machine screen. Tests: `EodBatchSummaryControllerTest` (4 — latest-EOD summary + top-conviction rec, 204 with only on-demand runs, no-trade batch nulls, anonymous 401), `eodNotifier.test.ts` (9 — baseline-on-start, notify-exactly-once, zero-rec/failed silence, RUNNING-then-complete, fetch-failure safety, D20 body format incl. singular), `App.test.tsx` (+1 — forwarded click lands on the Slot Machine screen only); vitest now also runs pure `src/main` modules. Backend 287 green; desktop 60 + typecheck/lint/build green.)*
 - [ ] CI produces an installable unsigned macOS artifact; the documented first-run Gatekeeper step works.
 - [ ] Consistent error and empty states across console, slot machine, and ledger.
 - [ ] Disclaimer surfaced in the UI.
 - [ ] README/docs updated for build, deploy, config-update, and first-run.
+
+### Additional polish items (end-of-v1 audit, 2026-07-16)
+
+Concrete gaps found while implementing AC1, folded into the phase so they aren't lost. Each maps to an existing AC where noted; the last is a standalone checklist item.
+
+- [ ] **Stale header copy** (fold into AC3/AC4): the topbar still reads `walking skeleton · v0.1` (`App.tsx` brand tag) — Phase 1 scaffolding copy shipping on every screen. Replace with real product versioning.
+- [ ] **AC4 is likely already satisfied** — the disclaimer footer ("Personal tool — not financial advice. Advisory & tracking only.") already renders in `App.tsx`. Per the "verify, don't rewrite" rule, land AC4 as a pinned regression test over the existing footer rather than new code.
+- [ ] **Session-expiry UX** (fold into AC3): when the JWT expires mid-session, `authedFetch` clears the keychain and each screen shows "Session expired" as an inline error, but the app stays on the dead screen until something calls `refresh()`. First expired-session result should return the app to the login view (or prompt re-auth).
+- [ ] **Logout doesn't reset navigation** (fold into AC3): log out on the Ledger tab, log back in → you land on Ledger, not the Console. Reset `screen` to `'console'` on logout.
+- [ ] **macOS notification permission** (fold into AC2 docs): unsigned Electron apps need the user to allow notifications in System Settings, or the AC1 EOD notification silently never appears. Add a line to the first-run/Gatekeeper doc and verify `Notification.isSupported()` in the packaged build.
+- [ ] **Dead code / dev-artifact sweep** (fold into AC5): `EngineBatchRunner.latestRun()` has no callers (AC1 uses `latestEodSummary()`); `spikes/` and `VERIFY-PHASE3.md` should be referenced from the README as dev-only or removed.
+- [ ] **Post-v1 notes to log, not fix now**: `keytar` is archived/unmaintained — plan a migration to Electron `safeStorage` for the JWT-at-rest seam (V1.5/V2); renderer bundle is ~772 kB, fine for a local Electron app but worth revisiting if startup time ever matters.
 
 ---
 
