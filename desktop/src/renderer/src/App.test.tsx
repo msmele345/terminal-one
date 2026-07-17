@@ -35,9 +35,14 @@ function emptySummary(): PortfolioSummary {
   }
 }
 
+// Captures the deep-link subscription so tests can simulate the main process
+// forwarding a notification click (Phase 9 AC1).
+let openSlotMachine: (() => void) | null = null
+
 // Stubs the whole preload surface App + PortfolioConsole need. `loggedIn`
 // controls which screen App lands on (login vs authed).
 function installFakeApi(loggedIn: boolean): void {
+  openSlotMachine = null
   window.api = {
     session: vi.fn(async () => ({ loggedIn })),
     whoami: vi.fn(async () => ({
@@ -89,6 +94,14 @@ function installFakeApi(loggedIn: boolean): void {
       // ApiResult<TakenPosition> contract without fabricating a full row.
       take: vi.fn(async () => ({ ok: false as const, error: 'stub' })),
       taken: vi.fn(async () => ({ ok: true as const, data: [] }))
+    },
+    navigation: {
+      onOpenSlotMachine: vi.fn((cb: () => void) => {
+        openSlotMachine = cb
+        return () => {
+          openSlotMachine = null
+        }
+      })
     }
   }
 }
@@ -157,6 +170,25 @@ describe('App screens (Phase 7 AC5)', () => {
 
     await waitFor(() => expect(screen.getByText('PORTFOLIO CONSOLE')).toBeInTheDocument())
     expect(screen.queryByText('LEDGER')).toBeNull()
+  })
+})
+
+describe('EOD notification deep link (Phase 9 AC1)', () => {
+  beforeEach(() => {
+    installFakeApi(true)
+  })
+
+  it('opens the Slot Machine screen when the notification click is forwarded', async () => {
+    const { act } = await import('@testing-library/react')
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByText('PORTFOLIO CONSOLE')).toBeInTheDocument())
+    expect(openSlotMachine).not.toBeNull()
+
+    act(() => openSlotMachine?.())
+
+    await waitFor(() => expect(screen.getByTestId('slot-machine')).toBeInTheDocument())
+    expect(screen.queryByText('PORTFOLIO CONSOLE')).toBeNull()
   })
 })
 

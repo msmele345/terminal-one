@@ -7,4 +7,6 @@ import java.util.Optional;
 public interface EngineBatchRunRepository extends JpaRepository<EngineBatchRun, Long> {
 
     Optional<EngineBatchRun> findTopByOrderByStartedAtDesc();
+
+    Optional<EngineBatchRun> findTopByKindOrderByStartedAtDesc(EngineBatchKind kind);
 }

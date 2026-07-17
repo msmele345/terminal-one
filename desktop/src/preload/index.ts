@@ -352,6 +352,18 @@ const api = {
     take: (id: number, fillPrice: number): Promise<ApiResult<TakenPosition>> =>
       ipcRenderer.invoke('recommendations:take', id, fillPrice),
     taken: (): Promise<ApiResult<TakenPosition[]>> => ipcRenderer.invoke('recommendations:taken')
+  },
+  navigation: {
+    // Phase 9 AC1: the main process forwards a click on the post-EOD-batch
+    // desktop notification so the renderer can open the Slot Machine screen.
+    // Returns an unsubscribe function.
+    onOpenSlotMachine: (callback: () => void): (() => void) => {
+      const listener = (): void => callback()
+      ipcRenderer.on('nav:open-slot-machine', listener)
+      return () => {
+        ipcRenderer.removeListener('nav:open-slot-machine', listener)
+      }
+    }
   }
 }
 

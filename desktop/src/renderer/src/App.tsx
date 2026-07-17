@@ -37,6 +37,12 @@ export default function App(): JSX.Element {
     void refresh()
   }, [refresh])
 
+  // Phase 9 AC1: a click on the post-EOD-batch desktop notification deep-links
+  // into the Slot Machine (the screen only renders once authenticated).
+  useEffect(() => {
+    return window.api.navigation.onOpenSlotMachine(() => setScreen('slotMachine'))
+  }, [])
+
   return (
     <div className="app">
       <Header

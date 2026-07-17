@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, shell } from 'electron'
 import { join } from 'path'
 import keytar from 'keytar'
+import { EodBatchWatcher, type EodBatchSummary } from './eodNotifier'
 
 // All HTTP to the backend happens here in the main process (Node, no CORS),
 // keeping the API base URL and the JWT out of the renderer entirely.
@@ -176,6 +177,50 @@ async function takenPositions() {
   return authedFetch('/api/recommendations/taken')
 }
 
+// ---- EOD desktop notification (Phase 9 AC1, FR-24/D20) ----
+
+// The backend runs the scheduled EOD batch in the cloud; the main process polls
+// its summary and fires exactly one native notification per newly completed
+// batch with recommendations. Clicking it deep-links into the Slot Machine.
+const EOD_POLL_INTERVAL_MS = 5 * 60_000
+
+async function fetchLatestEodBatch(): Promise<EodBatchSummary | null> {
+  const res = await authedFetch('/api/engine/eod/latest')
+  // Logged out / backend unreachable / no batch yet (204) all read as
+  // "nothing to report"; the watcher just tries again on the next poll.
+  if (!res.ok) return null
+  return res.data as EodBatchSummary | null
+}
+
+function openSlotMachine(): void {
+  let win = BrowserWindow.getAllWindows()[0]
+  if (!win) {
+    createWindow()
+    win = BrowserWindow.getAllWindows()[0]
+  }
+  if (!win) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  const send = (): void => win.webContents.send('nav:open-slot-machine')
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', send)
+  } else {
+    send()
+  }
+}
+
+function startEodNotificationWatcher(): void {
+  const watcher = new EodBatchWatcher(fetchLatestEodBatch, ({ title, body }) => {
+    if (!Notification.isSupported()) return
+    const notification = new Notification({ title, body })
+    notification.on('click', openSlotMachine)
+    notification.show()
+  })
+  void watcher.check() // baseline immediately so old batches never notify
+  setInterval(() => void watcher.check(), EOD_POLL_INTERVAL_MS)
+}
+
 function registerIpc(): void {
   ipcMain.handle('auth:login', (_e, username: string, password: string) => login(username, password))
   ipcMain.handle('auth:whoami', () => whoami())
@@ -199,6 +244,7 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   registerIpc()
   createWindow()
+  startEodNotificationWatcher()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

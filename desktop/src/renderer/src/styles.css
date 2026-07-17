@@ -661,6 +661,112 @@ body {
   margin-top: 30px;
 }
 
+/* ---- Casino floor ambience ----
+   The room around the machine: a fixed light scene (canopy spotlight, pit glow,
+   vignette) with drifting out-of-focus neon orbs. Painted behind all content
+   (z-index: -1), pointer-transparent, and rendered only by the Slot Machine
+   screen so the metaphor stays confined (Phase 7 AC5). All motion is
+   compositor-only transform/opacity (Phase 7 AC4). */
+.casino-ambience {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    /* warm canopy spotlight falling on the machine from above */
+    radial-gradient(58% 44% at 50% -6%, rgba(255, 181, 71, 0.1), transparent 70%),
+    /* pit glow rising from the floor corners */
+    radial-gradient(42% 36% at 6% 98%, rgba(255, 46, 151, 0.13), transparent 70%),
+    radial-gradient(44% 38% at 95% 100%, rgba(0, 245, 212, 0.09), transparent 70%),
+    radial-gradient(62% 46% at 50% 110%, rgba(255, 46, 151, 0.1), transparent 72%),
+    /* vignette — the edges of the room fall away, focus stays on the machine */
+    radial-gradient(125% 105% at 50% 40%, transparent 52%, rgba(4, 4, 10, 0.6) 100%);
+}
+
+/* On a jackpot the whole room warms up — a gold wash fading in over the scene. */
+.casino-ambience::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(52% 42% at 50% 28%, rgba(255, 181, 71, 0.14), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+
+.slot-machine.is-jackpot .casino-ambience::after {
+  opacity: 1;
+}
+
+/* Out-of-focus neon from the rest of the floor. The radial gradient *is* the
+   blur, so drifting is a cheap transform move — no filter repaints. */
+.bokeh {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.45;
+  animation: bokeh-drift 14s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+.bokeh-magenta {
+  background: radial-gradient(circle, rgba(255, 46, 151, 0.5), rgba(255, 46, 151, 0) 68%);
+}
+
+.bokeh-cyan {
+  background: radial-gradient(circle, rgba(0, 245, 212, 0.42), rgba(0, 245, 212, 0) 68%);
+}
+
+.bokeh-amber {
+  background: radial-gradient(circle, rgba(255, 181, 71, 0.45), rgba(255, 181, 71, 0) 68%);
+}
+
+@keyframes bokeh-drift {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.32;
+  }
+  to {
+    transform: translate3d(34px, -26px, 0) scale(1.08);
+    opacity: 0.52;
+  }
+}
+
+/* Light spilling onto the carpet beneath the machine. Two stacked glows
+   cross-fade by state: cyan while the reels tumble, gold on a jackpot —
+   opacity transitions only, so the reaction is smooth and cheap. */
+.floor-spill {
+  position: relative;
+  height: 120px;
+  margin: -44px 4% -10px;
+  pointer-events: none;
+}
+
+.floor-spill::before,
+.floor-spill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  transition: opacity 0.6s ease;
+}
+
+.floor-spill::before {
+  background: radial-gradient(48% 62% at 50% 45%, rgba(0, 245, 212, 0.16), transparent 70%);
+  opacity: 0.4;
+}
+
+.floor-spill::after {
+  background: radial-gradient(52% 66% at 50% 45%, rgba(255, 181, 71, 0.28), transparent 72%);
+  opacity: 0;
+}
+
+.slot-machine.is-running .floor-spill::before {
+  opacity: 1;
+}
+
+.slot-machine.is-jackpot .floor-spill::after {
+  opacity: 1;
+}
+
 /* The cabinet: reels stacked above the pull lever. */
 .slot-cabinet {
   position: relative;
@@ -673,6 +779,122 @@ body {
   box-shadow:
     inset 0 0 0 1px rgba(0, 245, 212, 0.05),
     0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+/* ---- Marquee ----
+   A rail of warm bulbs chasing across the cabinet's top edge. The chase is one
+   shared opacity keyframe, phase-staggered by negative per-bulb delays from the
+   component — animating only the opacity of a static box-shadow glow (AC4). */
+.marquee {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: -8px -4px 16px;
+  padding: 4px 10px 10px;
+  border-bottom: 1px solid rgba(255, 181, 71, 0.16);
+  background: linear-gradient(180deg, rgba(255, 181, 71, 0.05), transparent);
+  border-radius: 8px 8px 0 0;
+}
+
+.marquee-bulb {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--neon-amber);
+  box-shadow:
+    0 0 8px rgba(255, 181, 71, 0.8),
+    0 0 3px rgba(255, 181, 71, 0.9);
+  opacity: 0.25;
+  animation: bulb-chase 2.16s linear infinite;
+  will-change: opacity;
+}
+
+@keyframes bulb-chase {
+  0% {
+    opacity: 0.25;
+  }
+  8% {
+    opacity: 1;
+  }
+  32% {
+    opacity: 0.25;
+  }
+  100% {
+    opacity: 0.25;
+  }
+}
+
+/* The screen title as a neon sign: magenta tube glow with an occasional hum
+   flicker — two short dips per cycle, steady the rest of the time. */
+.slot-machine .console-bar {
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 46, 151, 0.2);
+  box-shadow: 0 16px 26px -20px rgba(255, 46, 151, 0.4);
+}
+
+.slot-machine .console-title {
+  color: #ffd7ec;
+  text-shadow:
+    0 0 6px rgba(255, 46, 151, 0.9),
+    0 0 16px rgba(255, 46, 151, 0.55),
+    0 0 34px rgba(255, 46, 151, 0.35);
+  animation: neon-hum 7s linear infinite;
+}
+
+@keyframes neon-hum {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  3% {
+    opacity: 0.86;
+  }
+  4% {
+    opacity: 1;
+  }
+  42% {
+    opacity: 0.7;
+  }
+  43% {
+    opacity: 1;
+  }
+  44% {
+    opacity: 0.9;
+  }
+  45% {
+    opacity: 1;
+  }
+}
+
+/* While the reels tumble, their windows pick up a cyan charge. */
+.slot-machine.is-running .reel {
+  border-color: rgba(0, 245, 212, 0.4);
+  box-shadow:
+    inset 0 0 24px rgba(0, 0, 0, 0.6),
+    0 0 18px rgba(0, 245, 212, 0.18);
+}
+
+/* ---- Jackpot coin burst ----
+   A finite fountain over the cabinet; coins are absolutely positioned glyph
+   spans animated by framer-motion (transform/opacity only). */
+.coin-burst {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.coin {
+  position: absolute;
+  top: 30px;
+  left: 50%;
+  font-size: 20px;
+  color: var(--neon-amber);
+  text-shadow:
+    0 0 8px rgba(255, 181, 71, 0.8),
+    0 0 2px rgba(255, 181, 71, 0.9);
+  will-change: transform, opacity;
 }
 
 .reels {
@@ -689,12 +911,29 @@ body {
   align-items: stretch;
 }
 
+/* Idle attract mode: the prompt glows and breathes like an "insert coin"
+   screen, inviting the pull. */
 .slot-prompt {
   display: grid;
   place-items: center;
   min-height: 132px;
   margin: 0;
   text-align: center;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text);
+  text-shadow: 0 0 10px rgba(0, 245, 212, 0.35);
+  animation: attract-pulse 3.2s ease-in-out infinite;
+}
+
+@keyframes attract-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .reel {
@@ -1087,16 +1326,32 @@ body {
   text-align: left;
 }
 
-/* Respect reduced-motion: hold the reels and lever still. */
+/* Respect reduced-motion: hold the reels, the lever, and the whole casino
+   floor still. The scene stays set — orbs glowing, marquee lit, prompt steady —
+   it just stops moving. */
 @media (prefers-reduced-motion: reduce) {
   .lever,
   .reel-strip,
   .lever-arm,
   .reel-result,
   .jackpot-banner,
-  .jackpot-glow {
+  .jackpot-glow,
+  .bokeh,
+  .marquee-bulb,
+  .coin-burst,
+  .slot-machine .console-title,
+  .slot-prompt {
     animation: none !important;
     transform: none !important;
+  }
+
+  /* Static fallbacks: bulbs fully lit, prompt fully opaque. */
+  .marquee-bulb {
+    opacity: 0.85;
+  }
+
+  .slot-prompt {
+    opacity: 1;
   }
 }
 

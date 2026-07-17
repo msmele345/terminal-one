@@ -78,6 +78,7 @@ describe('PositionModal', () => {
     render(<PositionModal onClose={vi.fn()} onSaved={vi.fn()} onError={vi.fn()} />)
 
     expect(screen.getByText('NEW POSITION')).toBeInTheDocument()
+    expect(screen.getByText('Stock')).toBeInTheDocument()
   });
 });
 
