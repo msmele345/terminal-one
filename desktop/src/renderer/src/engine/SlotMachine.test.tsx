@@ -239,6 +239,54 @@ describe('SlotMachine', () => {
     expect(screen.queryByTestId('reel-spinning')).not.toBeInTheDocument()
   })
 
+  // ---- Casino-floor ambience (the room around the machine) ----
+
+  it('sets the casino-floor scene around the cabinet, all decorative and hidden from assistive tech', () => {
+    render(<SlotMachine minSpinMs={0} />)
+
+    // The room (backdrop + bokeh) and the cabinet's marquee are always present,
+    // and every decorative layer is aria-hidden so the screen reader experience
+    // is unchanged from the plain machine.
+    expect(screen.getByTestId('casino-ambience')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('marquee')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('floor-spill')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('marks the room with the run state — spinning, then jackpot — and rains coins on a high-conviction hit', async () => {
+    const user = userEvent.setup()
+    const gate = deferred<{ ok: true; data: EngineRunResult }>()
+    installEngineApi(vi.fn(() => gate.promise))
+
+    render(<SlotMachine minSpinMs={0} />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    // While the reels tumble, the room is in spin mode and no coins have fallen.
+    expect(screen.getByTestId('slot-machine')).toHaveClass('is-running')
+    expect(screen.queryByTestId('coin-burst')).not.toBeInTheDocument()
+
+    gate.resolve({ ok: true, data: { recommendations: [sampleRec({ conviction: 88 })] } })
+
+    expect(await screen.findByTestId('coin-burst')).toBeInTheDocument()
+    const machine = screen.getByTestId('slot-machine')
+    expect(machine).toHaveClass('is-jackpot')
+    expect(machine).not.toHaveClass('is-running')
+  })
+
+  it('pays out no coins for an ordinary-conviction run', async () => {
+    const user = userEvent.setup()
+    // sampleRec defaults to conviction 72 — below the High band (≥ 80).
+    installEngineApi(
+      vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
+    )
+
+    render(<SlotMachine minSpinMs={0} />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    await screen.findByTestId('recommendation')
+    expect(screen.queryByTestId('coin-burst')).not.toBeInTheDocument()
+    expect(screen.getByTestId('slot-machine')).not.toHaveClass('is-jackpot')
+  })
+
   // ---- Phase 7 AC3 ----
 
   it('expands a reel result to the full rationale — signals, regime, strikes, POP, risk/reward, and sizing', async () => {

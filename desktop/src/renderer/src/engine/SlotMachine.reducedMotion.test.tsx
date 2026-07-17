@@ -151,6 +151,13 @@ describe('SlotMachine under prefers-reduced-motion', () => {
     expectStatic(banner)
     expect(within(banner).queryByTestId('jackpot-glow')).not.toBeInTheDocument()
     expect(screen.getByTestId('jackpot-badge')).toBeInTheDocument()
+
+    // No coin rain with motion off — the room stays calm.
+    expect(screen.queryByTestId('coin-burst')).not.toBeInTheDocument()
+    // …but the static scene (backdrop, marquee, floor spill) is still set.
+    expect(screen.getByTestId('casino-ambience')).toBeInTheDocument()
+    expect(screen.getByTestId('marquee')).toBeInTheDocument()
+    expect(screen.getByTestId('floor-spill')).toBeInTheDocument()
   })
 
   it('keeps the full rationale drill-down working with motion off', async () => {
