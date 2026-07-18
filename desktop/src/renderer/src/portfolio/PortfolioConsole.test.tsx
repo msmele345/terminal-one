@@ -80,7 +80,24 @@ describe('PortfolioConsole', () => {
 
   it('shows the empty-state when there are no positions', async () => {
     render(<PortfolioConsole />)
-    expect(await screen.findByTestId('empty-state')).toBeInTheDocument()
+    const state = await screen.findByTestId('empty-state')
+    expect(state).toHaveClass('screen-state', 'screen-state-empty')
+    expect(state).toHaveAttribute('role', 'status')
+  })
+
+  it('shows a consistent actionable error state when positions cannot load', async () => {
+    window.api.positions.summary = vi.fn(async () => ({
+      ok: false as const,
+      error: 'Request failed (500)'
+    }))
+
+    render(<PortfolioConsole />)
+
+    const state = await screen.findByRole('alert')
+    expect(state).toHaveClass('screen-state', 'screen-state-error')
+    expect(within(state).getByText('Portfolio unavailable')).toBeInTheDocument()
+    expect(within(state).getByText('Request failed (500)')).toBeInTheDocument()
+    expect(within(state).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
   })
 
   it('adds a stock position and shows it in the list', async () => {

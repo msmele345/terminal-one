@@ -78,11 +78,6 @@ public class EngineBatchRunner {
         }
     }
 
-    public Optional<EngineBatchRunResponse> latestRun() {
-        return batchRuns.findTopByOrderByStartedAtDesc()
-                .map(EngineBatchRunResponse::from);
-    }
-
     /**
      * Latest scheduled EOD batch with its top-conviction recommendation, for the
      * Phase 9 AC1 desktop notification. On-demand lever pulls are excluded —

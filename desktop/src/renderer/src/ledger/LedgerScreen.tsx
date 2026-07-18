@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { LedgerEntry, LedgerPayload, LedgerStats } from '../../../preload'
+import { ScreenState } from '../ui/ScreenState'
 
 // Phase 8 AC2: the paper-trade track record. A conventional terminal panel —
 // no slot-machine/casino styling, no framer-motion (Phase 7 AC5 confines the
@@ -64,15 +65,23 @@ export function LedgerScreen(): JSX.Element {
         )}
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <ScreenState kind="error" title="Ledger unavailable" detail={error}>
+          <button type="button" className="ghost-btn" onClick={() => void load(configVersion)}>
+            Try again
+          </button>
+        </ScreenState>
+      )}
 
       {data == null && !error && <p className="muted">Loading ledger…</p>}
 
-      {isEmpty && (
-        <div className="empty-state" data-testid="empty-state">
-          <p className="empty-glyph">▦</p>
-          <p>No paper trades yet — pull the lever to build a track record.</p>
-        </div>
+      {isEmpty && !error && (
+        <ScreenState
+          kind="empty"
+          title="No paper trades yet."
+          detail="Pull the lever to build a track record."
+          testId="empty-state"
+        />
       )}
 
       {data != null && !isEmpty && (

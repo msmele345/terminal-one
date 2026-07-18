@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
 import type { PortfolioSummary } from '../../preload'
@@ -38,19 +38,38 @@ function emptySummary(): PortfolioSummary {
 // Captures the deep-link subscription so tests can simulate the main process
 // forwarding a notification click (Phase 9 AC1).
 let openSlotMachine: (() => void) | null = null
+let expireSession: (() => void) | null = null
 
 // Stubs the whole preload surface App + PortfolioConsole need. `loggedIn`
 // controls which screen App lands on (login vs authed).
 function installFakeApi(loggedIn: boolean): void {
+  let authenticated = loggedIn
   openSlotMachine = null
+  expireSession = null
   window.api = {
-    session: vi.fn(async () => ({ loggedIn })),
+    session: vi.fn(async () => ({ loggedIn: authenticated, appVersion: '1.0.0' })),
+    onSessionExpired: vi.fn((cb: () => void) => {
+      expireSession = cb
+      return () => {
+        expireSession = null
+      }
+    }),
     whoami: vi.fn(async () => ({
       ok: true as const,
       payload: { username: 'mitch', authenticated: true, serverTime: '2026-07-08T12:00:00Z' }
     })),
-    login: vi.fn(),
-    logout: vi.fn(),
+    login: vi.fn(async () => {
+      authenticated = true
+      return {
+        ok: true as const,
+        username: 'mitch',
+        expiresAt: '2026-07-18T12:00:00Z'
+      }
+    }),
+    logout: vi.fn(async () => {
+      authenticated = false
+      return { ok: true as const }
+    }),
     positions: {
       list: vi.fn(),
       create: vi.fn(),
@@ -135,6 +154,20 @@ describe('App screens (Phase 7 AC5)', () => {
     expect(ledgerTab).not.toHaveAttribute('aria-current', 'page')
   })
 
+  it('shows the packaged product version instead of scaffold copy', async () => {
+    render(<App />)
+
+    expect(await screen.findByText('personal trading cockpit · v1.0.0')).toBeInTheDocument()
+    expect(screen.queryByText(/walking skeleton/i)).toBeNull()
+  })
+
+  it('surfaces the personal-tool financial disclaimer on every view', async () => {
+    render(<App />)
+
+    await screen.findByText('PORTFOLIO CONSOLE')
+    expect(screen.getByText(/personal tool — not financial advice/i)).toBeInTheDocument()
+  })
+
   it('switches to the Slot Machine screen and back, never showing both', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -171,6 +204,38 @@ describe('App screens (Phase 7 AC5)', () => {
     await waitFor(() => expect(screen.getByText('PORTFOLIO CONSOLE')).toBeInTheDocument())
     expect(screen.queryByText('LEDGER')).toBeNull()
   })
+
+  it('returns to the Console after logging out from Ledger and signing in again', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByText('PORTFOLIO CONSOLE')
+    await user.click(screen.getByRole('button', { name: 'Ledger' }))
+    await screen.findByText('LEDGER')
+
+    await user.click(screen.getByRole('button', { name: 'Log out' }))
+    await screen.findByRole('button', { name: 'Sign in' })
+    await user.type(screen.getByLabelText('Username'), 'mitch')
+    await user.type(screen.getByLabelText('Password'), 'secret')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await screen.findByText('PORTFOLIO CONSOLE')
+    expect(screen.queryByText('LEDGER')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Console' })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('returns an expired session to sign-in with a re-authentication message', async () => {
+    render(<App />)
+
+    await screen.findByText('PORTFOLIO CONSOLE')
+    expect(expireSession).not.toBeNull()
+
+    act(() => expireSession?.())
+
+    await screen.findByRole('button', { name: 'Sign in' })
+    expect(screen.getByRole('alert')).toHaveTextContent('Session expired. Sign in again.')
+    expect(screen.queryByText('PORTFOLIO CONSOLE')).toBeNull()
+  })
 })
 
 describe('EOD notification deep link (Phase 9 AC1)', () => {
@@ -179,7 +244,6 @@ describe('EOD notification deep link (Phase 9 AC1)', () => {
   })
 
   it('opens the Slot Machine screen when the notification click is forwarded', async () => {
-    const { act } = await import('@testing-library/react')
     render(<App />)
 
     await waitFor(() => expect(screen.getByText('PORTFOLIO CONSOLE')).toBeInTheDocument())

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SlotMachine } from './SlotMachine'
 import type { EngineRunResult, Recommendation } from '../../../preload'
@@ -592,7 +592,9 @@ describe('SlotMachine', () => {
     render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
-    expect(await screen.findByTestId('engine-empty')).toBeInTheDocument()
+    const state = await screen.findByTestId('engine-empty')
+    expect(state).toHaveClass('screen-state', 'screen-state-empty')
+    expect(state).toHaveAttribute('role', 'status')
     expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
   })
 
@@ -604,7 +606,10 @@ describe('SlotMachine', () => {
     render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
-    await waitFor(() => expect(screen.getByText('Session expired')).toBeInTheDocument())
+    const state = await screen.findByRole('alert')
+    expect(state).toHaveClass('screen-state', 'screen-state-error')
+    expect(within(state).getByText('Engine run failed')).toBeInTheDocument()
+    expect(within(state).getByText('Session expired')).toBeInTheDocument()
     expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
   })
 })

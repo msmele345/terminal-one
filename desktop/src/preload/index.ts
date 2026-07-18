@@ -319,7 +319,15 @@ const api = {
     ipcRenderer.invoke('auth:login', username, password),
   whoami: (): Promise<WhoamiResult> => ipcRenderer.invoke('auth:whoami'),
   logout: (): Promise<{ ok: true }> => ipcRenderer.invoke('auth:logout'),
-  session: (): Promise<{ loggedIn: boolean }> => ipcRenderer.invoke('auth:session'),
+  session: (): Promise<{ loggedIn: boolean; appVersion: string }> =>
+    ipcRenderer.invoke('auth:session'),
+  onSessionExpired: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('auth:session-expired', listener)
+    return () => {
+      ipcRenderer.removeListener('auth:session-expired', listener)
+    }
+  },
   positions: {
     list: (): Promise<ApiResult<PositionsPayload>> => ipcRenderer.invoke('positions:list'),
     summary: (): Promise<ApiResult<PortfolioSummary>> => ipcRenderer.invoke('positions:summary'),

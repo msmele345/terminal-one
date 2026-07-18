@@ -312,8 +312,8 @@ body {
   color: var(--neon-amber);
 }
 
-/* ---- Empty state ---- */
-.empty-state {
+/* ---- Shared screen states (Phase 9 AC3) ---- */
+.screen-state {
   text-align: center;
   padding: 60px 20px;
   border: 1px dashed var(--edge);
@@ -321,11 +321,41 @@ body {
   background: var(--bg-panel);
 }
 
-.empty-glyph {
+.screen-state-glyph {
   font-size: 40px;
   color: var(--neon-magenta);
   text-shadow: 0 0 14px rgba(255, 46, 151, 0.5);
   margin: 0 0 8px;
+}
+
+.screen-state-title {
+  margin: 0;
+}
+
+.screen-state-detail {
+  margin: 8px auto 0;
+  max-width: 620px;
+}
+
+.screen-state-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.screen-state-error {
+  border-color: rgba(255, 77, 109, 0.45);
+  background: linear-gradient(180deg, rgba(255, 77, 109, 0.06), var(--bg-panel));
+}
+
+.screen-state-error .screen-state-glyph,
+.screen-state-error .screen-state-title {
+  color: var(--danger);
+  text-shadow: 0 0 8px rgba(255, 77, 109, 0.4);
+}
+
+.slot-machine .screen-state {
+  padding: 32px 20px;
 }
 
 /* ---- Tables ---- */

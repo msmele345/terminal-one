@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { EngineAbstention, Recommendation } from '../../../preload'
 import { RecommendationCard, formatLabel } from './RecommendationCard'
+import { ScreenState } from '../ui/ScreenState'
 
 type RunState = 'idle' | 'running' | 'done' | 'error'
 
@@ -138,8 +139,10 @@ export function SlotMachine({
             </div>
           )}
 
-          {state === 'done' && recs.length === 0 && abstentions.length === 0 && (
-            <NoTrade reducedMotion={reducedMotion} />
+          {state === 'done' && recs.length === 0 && abstentions.length === 0 && <NoTrade />}
+
+          {state === 'error' && error && (
+            <ScreenState kind="error" title="Engine run failed" detail={error} glyph="×" />
           )}
         </div>
 
@@ -147,8 +150,6 @@ export function SlotMachine({
       </div>
 
       <div className="floor-spill" data-testid="floor-spill" aria-hidden="true" />
-
-      {error && <p className="error">{error}</p>}
 
       {state === 'done' && abstentions.length > 0 && <Abstentions abstentions={abstentions} />}
     </section>
@@ -396,33 +397,15 @@ function JackpotBannerBody(): JSX.Element {
 
 // AC2: the abstain / no-result landing. Deliberately calm — a soft fade-in, no
 // payout, no jarring motion — so "no trade" reads as a clean resolution.
-function NoTrade({ reducedMotion }: { reducedMotion: boolean }): JSX.Element {
-  const body = (
-    <>
-      <p className="empty-glyph">✧</p>
-      <p>No trade.</p>
-      <p className="muted">
-        The engine abstained — no qualifying setup across your portfolio right now.
-      </p>
-    </>
-  )
-  if (reducedMotion) {
-    return (
-      <div className="empty-state" data-testid="engine-empty">
-        {body}
-      </div>
-    )
-  }
+function NoTrade(): JSX.Element {
   return (
-    <motion.div
-      className="empty-state"
-      data-testid="engine-empty"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
-    >
-      {body}
-    </motion.div>
+    <ScreenState
+      kind="empty"
+      title="No trade."
+      detail="The engine abstained — no qualifying setup across your portfolio right now."
+      glyph="✧"
+      testId="engine-empty"
+    />
   )
 }
 
