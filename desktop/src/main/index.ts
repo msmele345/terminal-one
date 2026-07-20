@@ -2,10 +2,12 @@ import { app, BrowserWindow, ipcMain, Notification, shell } from 'electron'
 import { join } from 'path'
 import keytar from 'keytar'
 import { EodBatchWatcher, type EodBatchSummary } from './eodNotifier'
+import { fetchBackend } from './backendTransport'
 
 // All HTTP to the backend happens here in the main process (Node, no CORS),
 // keeping the API base URL and the JWT out of the renderer entirely.
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:8080'
+declare const __DEFAULT_BACKEND_URL__: string
+const BACKEND_URL = process.env.BACKEND_URL ?? __DEFAULT_BACKEND_URL__
 const KEYCHAIN_SERVICE = 'terminal-one'
 const KEYCHAIN_ACCOUNT = 'session-jwt'
 
@@ -68,6 +70,7 @@ async function whoami() {
   if (res.status === 401) {
     // Stale/expired token — clear it so the UI returns to login.
     await keytar.deletePassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+    broadcastSessionExpired()
     return { ok: false as const, error: 'Session expired' }
   }
   if (!res.ok) return { ok: false as const, error: `Request failed (${res.status})` }
@@ -81,7 +84,13 @@ async function logout() {
 
 async function hasSession() {
   const token = await keytar.getPassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
-  return { loggedIn: token != null }
+  return { loggedIn: token != null, appVersion: app.getVersion() }
+}
+
+function broadcastSessionExpired(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('auth:session-expired')
+  }
 }
 
 // ---- Authenticated backend calls (portfolio) ----
@@ -91,12 +100,15 @@ async function hasSession() {
 async function authedFetch(path: string, init: RequestInit = {}) {
   const token = await keytar.getPassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
   if (!token) return { ok: false as const, error: 'Not authenticated' }
-  const res = await fetch(`${BACKEND_URL}${path}`, {
+  const transport = await fetchBackend(fetch, `${BACKEND_URL}${path}`, {
     ...init,
     headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` }
   })
+  if (!transport.ok) return transport
+  const res = transport.response
   if (res.status === 401) {
     await keytar.deletePassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+    broadcastSessionExpired()
     return { ok: false as const, error: 'Session expired' }
   }
   if (res.status === 204) return { ok: true as const, data: null }

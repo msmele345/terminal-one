@@ -8,6 +8,7 @@ import type {
 } from '../../../preload'
 import { PositionModal } from './PositionModal'
 import { PriceChart } from './PriceChart'
+import { ScreenState } from '../ui/ScreenState'
 
 type Editing = { mode: 'create' } | { mode: 'edit'; position: Position } | null
 
@@ -99,17 +100,24 @@ export function PortfolioConsole(): JSX.Element {
         </div>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <ScreenState kind="error" title="Portfolio unavailable" detail={error}>
+          <button type="button" className="ghost-btn" onClick={() => void load()}>
+            Try again
+          </button>
+        </ScreenState>
+      )}
       {notice && <p className="muted notice">{notice}</p>}
 
-      {data == null && <p className="muted">Loading positions…</p>}
+      {data == null && !error && <p className="muted">Loading positions…</p>}
 
-      {isEmpty && (
-        <div className="empty-state" data-testid="empty-state">
-          <p className="empty-glyph">▦</p>
-          <p>No positions yet.</p>
-          <p className="muted">Add one manually or import a CSV to populate the console.</p>
-        </div>
+      {isEmpty && !error && (
+        <ScreenState
+          kind="empty"
+          title="No positions yet."
+          detail="Add one manually or import a CSV to populate the console."
+          testId="empty-state"
+        />
       )}
 
       {data != null && !isEmpty && (

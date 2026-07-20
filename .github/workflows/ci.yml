@@ -53,3 +53,33 @@ jobs:
         run: npm test
       - name: Build (electron-vite bundle)
         run: npm run build
+
+  macos-artifact:
+    name: macOS artifact (unsigned arm64 DMG)
+    needs: [backend, desktop]
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      BACKEND_URL: https://terminal-one-production.up.railway.app
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build unsigned Apple Silicon DMG
+        run: npm run dist -- --arm64 --publish never
+      - name: Upload installable DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-one-macos-arm64-${{ github.sha }}
+          path: desktop/release/*.dmg
+          if-no-files-found: error
+          retention-days: 14

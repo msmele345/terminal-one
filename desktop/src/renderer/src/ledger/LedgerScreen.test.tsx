@@ -64,7 +64,9 @@ describe('LedgerScreen', () => {
 
   it('shows the empty-state when there are no paper trades', async () => {
     render(<LedgerScreen />)
-    expect(await screen.findByTestId('empty-state')).toBeInTheDocument()
+    const state = await screen.findByTestId('empty-state')
+    expect(state).toHaveClass('screen-state', 'screen-state-empty')
+    expect(state).toHaveAttribute('role', 'status')
     expect(screen.getByText(/no paper trades yet/i)).toBeInTheDocument()
   })
 
@@ -157,7 +159,11 @@ describe('LedgerScreen', () => {
 
     render(<LedgerScreen />)
 
-    expect(await screen.findByText('Request failed (500)')).toBeInTheDocument()
+    const state = await screen.findByRole('alert')
+    expect(state).toHaveClass('screen-state', 'screen-state-error')
+    expect(within(state).getByText('Ledger unavailable')).toBeInTheDocument()
+    expect(within(state).getByText('Request failed (500)')).toBeInTheDocument()
+    expect(within(state).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
   })
 
   it('re-fetches with the selected config version and re-renders the filtered payload', async () => {

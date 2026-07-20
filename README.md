@@ -13,31 +13,24 @@ for the phased implementation plan.
 
 ```
 terminal-one/
-├── backend/     Spring Boot 3 (Java 21) — REST API, JWT auth, Postgres, engine (later phases)
+├── backend/     Spring Boot 3 (Java 21) — REST API, JWT auth, Postgres, deterministic engine
 ├── desktop/     Electron + React + TypeScript — neon thin client
 ├── docs/        PRD, strategy matrix, runbooks
 ├── plans/       Phased build plan
 └── .github/     CI (test gate)
 ```
 
-## Status — Phase 2: Portfolio positions (manual) - DONE
+## Status — V1 / Phase 9
 
-Phase 1 (walking skeleton) proved the stack end-to-end: Electron neon shell → single-account
-login → JWT (stored in the OS keychain) → authenticated Spring Boot call → Postgres identity.
+The V1 feature path is complete: authenticated Portfolio Console, delayed market data and
+charts, deterministic recommendation engine, Slot Machine results, paper/taken Ledger,
+directional backtest, scheduled EOD processing, and one native EOD notification. Phase 9
+adds consistent screen states, session-expiry recovery, an app-level disclaimer, and an
+unsigned macOS artifact.
 
-Phase 2 adds the **Portfolio Console**: enter, edit, delete, and CSV-import stock and option
-positions. All position I/O flows through the `PositionSource` seam (`ManualPositionSource`
-in V1); pricing/P&L arrive in Phase 3.
-
-- `GET /api/health` — public liveness
-- `POST /api/auth/login` — single account → JWT
-- `GET /api/whoami` — JWT-protected `{username, serverTime}` payload
-- `GET /api/portfolio/positions` — list stock + option positions
-- `POST /api/portfolio/positions` — add a position (`kind`: `STOCK` | `OPTION`)
-- `PUT /api/portfolio/positions/{id}` — edit a position
-- `DELETE /api/portfolio/positions/{id}?kind=STOCK|OPTION` — remove a position
-- `POST /api/portfolio/import` — CSV import (see [`docs/positions-csv-template.md`](docs/positions-csv-template.md))
-- Every route except health/login requires a valid bearer token (401 otherwise)
+Every route except health and login requires a valid bearer token. For the exact current
+phase record and test evidence, use [`plans/terminal-one.md`](plans/terminal-one.md); for the
+engine rules and defaults, use [`docs/strategy-matrix.md`](docs/strategy-matrix.md).
 
 ## Prerequisites
 
@@ -88,10 +81,10 @@ Flyway creates the schema and the single account is seeded from `APP_USER_USERNA
 curl localhost:8080/api/health
 ```
 
-Run the test gate (no DB required — uses in-memory H2):
+Run the backend test gate from the repository root (no DB required — uses in-memory H2):
 
 ```bash
-cd backend && mvn test
+mvn -f backend/pom.xml test
 ```
 
 #### Run fully offline (stub market data)
@@ -124,17 +117,43 @@ npm run dev                 # launches the Electron neon shell
 Log in with the seeded credentials. The JWT is stored in your OS keychain (macOS Keychain
 via `keytar`); the renderer never touches the token or the network directly.
 
-Other desktop scripts: `npm test` (renderer UI tests, Vitest), `npm run lint`,
-`npm run typecheck`, `npm run build`, `npm run package` (unsigned `.app`, see D13).
+Other desktop scripts: `npm test` (renderer + pure main-process tests, Vitest), `npm run lint`,
+`npm run typecheck`, and `npm run build`.
+
+## Build and install the macOS app
+
+GitHub Actions packages the tested app on an Apple Silicon runner and uploads an unsigned DMG
+named `terminal-one-macos-arm64-<commit-sha>`. The packaged client embeds the production
+Railway backend URL; credentials and market-data secrets remain server-side.
+
+For artifact download, local packaging, the one-time Gatekeeper exception, and macOS
+notification permission, follow [`docs/macos-first-run.md`](docs/macos-first-run.md).
 
 ## Deploy
 
 Backend deploys to Railway (managed Postgres + Docker). See
 [`docs/deploy-railway.md`](docs/deploy-railway.md). CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
-runs the backend tests + desktop build/lint/typecheck as a merge gate; Railway auto-deploys
-the backend on merge to `main`.
+runs backend and desktop gates, then packages the macOS artifact; Railway auto-deploys the
+backend on merge to `main`.
+
+Engine tuning is a versioned database operation, not a code deploy. Follow
+[`docs/config-update-runbook.md`](docs/config-update-runbook.md) to inspect, activate, verify,
+or roll back a config version.
 
 ## Secrets
 
-All secrets (`JWT_SECRET`, DB creds, `APP_USER_*`, later the market-data key) live only in
+All secrets (`JWT_SECRET`, DB creds, `APP_USER_*`, and the market-data key) live only in
 Railway env in production and in gitignored `.env` files locally. Nothing secret is committed.
+
+## Developer-only artifacts
+
+- [`spikes/`](spikes/) contains the MarketData.app probe and fixture-capture utilities used to
+  validate the provider contract. They are not packaged with the desktop app or backend image.
+- [`VERIFY-PHASE3.md`](VERIFY-PHASE3.md) is the retained stub-provider verification walkthrough.
+
+## Post-V1 maintenance notes
+
+- `keytar` is archived upstream. Migrate the JWT-at-rest seam to Electron `safeStorage` in
+  V1.5/V2; V1 continues to use the OS keychain through `keytar`.
+- The renderer bundle is intentionally acceptable for a local Electron app. Revisit splitting
+  only if measured startup time becomes a problem.

@@ -14,6 +14,9 @@ Config is a **versioned JSONB row** in Postgres. You never edit a value in place
 inspect active  →  draft new JSON  →  insert new version  →  activate (single txn)  →  verify  →  (rollback = reactivate old version)
 ```
 
+This is an operational data change, not a release: do not rebuild the desktop app or redeploy
+the backend after activating a version.
+
 ---
 
 ## 0. When to use this
