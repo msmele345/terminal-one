@@ -81,11 +81,20 @@ Flyway creates the schema and the single account is seeded from `APP_USER_USERNA
 curl localhost:8080/api/health
 ```
 
-Run the backend test gate from the repository root (no DB required — uses in-memory H2):
+Run the backend test gate from the repository root:
 
 ```bash
 mvn -f backend/pom.xml test
 ```
+
+Most of the suite runs on in-memory H2 and needs no database. One test —
+`SchemaMigrationIntegrationTest`, the schema gate — starts a real Postgres 16 via
+Testcontainers, applies every Flyway migration, and boots the app with
+`ddl-auto=validate`, exactly as Railway does. It is what catches a migration that
+does not apply or an entity that has drifted from the migrated schema; the H2 tests
+generate their schema from the entities and are structurally blind to both. It needs
+the Docker daemon running (already a prerequisite above) and is deliberately not
+skipped when Docker is absent — a gate that can silently skip is not a gate.
 
 #### Run fully offline (stub market data)
 
