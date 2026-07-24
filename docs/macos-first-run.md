@@ -6,7 +6,14 @@ certificate (PRD D13).
 
 ## Get the CI artifact
 
-1. Open the successful GitHub Actions run for the commit you want.
+Packaging runs on **merges to `main`** and on **manual runs**, not on every push —
+it gates nothing, so building a DMG per commit only occupied a macOS runner. Feature
+branches and `develop` pushes still get the full backend + desktop test gate; they
+just do not produce a DMG.
+
+1. Open the successful GitHub Actions run for the commit you want. If you need a build
+   from a branch that has none, go to **Actions → CI → Run workflow**, pick the branch,
+   and run it — the `workflow_dispatch` trigger packages any branch on demand.
 2. Under **Artifacts**, download `terminal-one-macos-arm64-<commit-sha>`.
 3. Unzip the Actions download, open `Terminal One-1.0.0-arm64.dmg`, and drag
    **Terminal One** into **Applications**.

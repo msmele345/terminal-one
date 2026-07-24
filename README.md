@@ -135,6 +135,10 @@ GitHub Actions packages the tested app on an Apple Silicon runner and uploads an
 named `terminal-one-macos-arm64-<commit-sha>`. The packaged client embeds the production
 Railway backend URL; credentials and market-data secrets remain server-side.
 
+Packaging runs on merges to `main` and on manual **Run workflow** dispatches — not on every
+push. It gates nothing, so per-commit builds only tied up a macOS runner; the backend and
+desktop test gates still run on every push and PR.
+
 For artifact download, local packaging, the one-time Gatekeeper exception, and macOS
 notification permission, follow [`docs/macos-first-run.md`](docs/macos-first-run.md).
 
