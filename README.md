@@ -81,11 +81,20 @@ Flyway creates the schema and the single account is seeded from `APP_USER_USERNA
 curl localhost:8080/api/health
 ```
 
-Run the backend test gate from the repository root (no DB required — uses in-memory H2):
+Run the backend test gate from the repository root:
 
 ```bash
 mvn -f backend/pom.xml test
 ```
+
+Most of the suite runs on in-memory H2 and needs no database. One test —
+`SchemaMigrationIntegrationTest`, the schema gate — starts a real Postgres 16 via
+Testcontainers, applies every Flyway migration, and boots the app with
+`ddl-auto=validate`, exactly as Railway does. It is what catches a migration that
+does not apply or an entity that has drifted from the migrated schema; the H2 tests
+generate their schema from the entities and are structurally blind to both. It needs
+the Docker daemon running (already a prerequisite above) and is deliberately not
+skipped when Docker is absent — a gate that can silently skip is not a gate.
 
 #### Run fully offline (stub market data)
 
@@ -125,6 +134,10 @@ Other desktop scripts: `npm test` (renderer + pure main-process tests, Vitest), 
 GitHub Actions packages the tested app on an Apple Silicon runner and uploads an unsigned DMG
 named `terminal-one-macos-arm64-<commit-sha>`. The packaged client embeds the production
 Railway backend URL; credentials and market-data secrets remain server-side.
+
+Packaging runs on merges to `main` and on manual **Run workflow** dispatches — not on every
+push. It gates nothing, so per-commit builds only tied up a macOS runner; the backend and
+desktop test gates still run on every push and PR.
 
 For artifact download, local packaging, the one-time Gatekeeper exception, and macOS
 notification permission, follow [`docs/macos-first-run.md`](docs/macos-first-run.md).

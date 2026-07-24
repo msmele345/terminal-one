@@ -19,6 +19,12 @@ export interface EodNotificationContent {
 }
 
 export function formatEodNotification(batch: EodBatchSummary): EodNotificationContent {
+  if (batch.status === 'FAILED') {
+    return {
+      title: 'Terminal One — EOD engine run failed',
+      body: 'No recommendations were produced. Open Terminal One to check the run.'
+    }
+  }
   const n = batch.recommendationCount
   const recs = n === 1 ? '1 new recommendation' : `${n} new recommendations`
   const top =
@@ -29,11 +35,16 @@ export function formatEodNotification(batch: EodBatchSummary): EodNotificationCo
 }
 
 /**
- * Watches the latest scheduled EOD batch and notifies exactly once per newly
- * completed batch that produced recommendations. The first batch seen after
- * startup is silently taken as the baseline, so reopening the app never
- * replays old batches; zero-recommendation and failed batches advance the
- * baseline without noise; a RUNNING batch is left pending until it completes.
+ * Watches the latest scheduled EOD batch and notifies at most once per newly
+ * observed batch: when it completed with recommendations, or when it failed.
+ *
+ * A failure is alerted because silence there is indistinguishable from a quiet
+ * no-trade day, which would let a broken engine go unnoticed for as long as it
+ * takes to wonder why the ledger stopped growing. Everything else stays quiet:
+ * the first batch seen after startup is silently taken as the baseline (so
+ * reopening the app never replays old batches), a completed batch with zero
+ * recommendations is a normal outcome and advances the baseline without noise,
+ * and a RUNNING batch is left pending until it reaches a terminal status.
  */
 export class EodBatchWatcher {
   private lastSeenId: number | null = null
@@ -54,7 +65,10 @@ export class EodBatchWatcher {
     if (latest.status === 'RUNNING') return // wait for the terminal status
 
     const isNew = this.lastSeenId != null && latest.batchRunId !== this.lastSeenId
-    if (isNew && latest.status === 'COMPLETED' && latest.recommendationCount > 0) {
+    const worthAnnouncing =
+      latest.status === 'FAILED' ||
+      (latest.status === 'COMPLETED' && latest.recommendationCount > 0)
+    if (isNew && worthAnnouncing) {
       this.notify(formatEodNotification(latest))
     }
     this.lastSeenId = latest.batchRunId

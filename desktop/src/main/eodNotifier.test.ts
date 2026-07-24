@@ -4,7 +4,13 @@ import { EodBatchWatcher, formatEodNotification, type EodBatchSummary } from './
 // Phase 9 AC1 (FR-24, D20): exactly one native notification per completed EOD
 // batch — "N new recommendations, top conviction: X" — and no other alert
 // noise: nothing on app start for batches that predate it, nothing for
-// zero-recommendation or failed batches, and never a repeat for the same batch.
+// zero-recommendation batches, and never a repeat for the same batch.
+//
+// A FAILED batch is the deliberate exception (post-v1 audit): silence there
+// makes "the engine crashed" indistinguishable from "no trades today", which
+// is the one failure mode that must never be quiet in a tool whose value is an
+// uninterrupted daily record. It still obeys every noise rule — at most one
+// notification per batch, baseline-silent on startup, never repeated.
 
 function batch(overrides: Partial<EodBatchSummary> = {}): EodBatchSummary {
   return {
@@ -58,13 +64,43 @@ describe('EodBatchWatcher', () => {
     expect(notify).not.toHaveBeenCalled()
   })
 
-  it('stays silent for failed batches', async () => {
+  it('notifies exactly once when a new batch fails, with distinct copy', async () => {
     const notify = vi.fn()
     let latest = batch({ batchRunId: 41 })
     const watcher = new EodBatchWatcher(async () => latest, notify)
 
-    await watcher.check()
-    latest = batch({ batchRunId: 42, status: 'FAILED' })
+    await watcher.check() // baseline
+    latest = batch({ batchRunId: 42, status: 'FAILED', recommendationCount: 0, topSymbol: null, topConviction: null })
+    await watcher.check() // failed batch → alert
+    await watcher.check() // same batch again → silent
+
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith({
+      title: 'Terminal One — EOD engine run failed',
+      body: 'No recommendations were produced. Open Terminal One to check the run.'
+    })
+  })
+
+  it('distinguishes a failed run from a completed run that simply found no trades', async () => {
+    const notify = vi.fn()
+    let latest = batch({ batchRunId: 41 })
+    const watcher = new EodBatchWatcher(async () => latest, notify)
+
+    await watcher.check() // baseline
+    latest = batch({ batchRunId: 42, status: 'COMPLETED', recommendationCount: 0, topSymbol: null, topConviction: null })
+    await watcher.check() // a normal no-trade day stays quiet
+    expect(notify).not.toHaveBeenCalled()
+
+    latest = batch({ batchRunId: 43, status: 'FAILED', recommendationCount: 0, topSymbol: null, topConviction: null })
+    await watcher.check() // a broken engine does not
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify.mock.calls[0][0].title).toBe('Terminal One — EOD engine run failed')
+  })
+
+  it('stays silent when the batch already latest at startup is a failure (baseline)', async () => {
+    const notify = vi.fn()
+    const watcher = new EodBatchWatcher(async () => batch({ status: 'FAILED' }), notify)
+
     await watcher.check()
 
     expect(notify).not.toHaveBeenCalled()
@@ -119,5 +155,12 @@ describe('formatEodNotification', () => {
     expect(formatEodNotification(batch({ recommendationCount: 1 })).body).toBe(
       '1 new recommendation · Top conviction: TSLA (82)'
     )
+  })
+
+  it('reports a failed run without pretending it produced anything', () => {
+    const content = formatEodNotification(batch({ status: 'FAILED', recommendationCount: 0 }))
+
+    expect(content.title).toBe('Terminal One — EOD engine run failed')
+    expect(content.body).not.toMatch(/recommendations ·/)
   })
 })

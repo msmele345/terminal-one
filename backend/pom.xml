@@ -95,6 +95,30 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+          Real Postgres for the schema gate. The fast unit/controller suite runs
+          on H2 with Flyway off and the schema generated from the entities; that
+          can never catch a migration that fails to apply, or an entity that has
+          drifted from the migrated schema (production boots with
+          ddl-auto=validate against the Flyway-built schema, and Postgres-only
+          DDL such as the partial unique index in V5 has no H2 equivalent).
+          SchemaMigrationIntegrationTest closes that gap on a real container.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
