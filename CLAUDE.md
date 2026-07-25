@@ -28,7 +28,10 @@ See @plans/terminal-one.md
     - `feat/*` - individual feature branches created from develop, merged back into develop when complete
     - `release/*` - created from develop when preparing for a release, merged into main
 - PRs should be used to merge feature branches into develop, and release branches into main. PRs should be reviewed and approved by me before merging.
-- Use Squash and Merge for all PRs to keep a clean commit history.
+- **Merge method depends on the target branch** (this matters — getting it wrong breaks branch ancestry):
+    - `feat/* → develop`: **Squash and Merge** — keeps develop's history clean, one commit per feature.
+    - `release/* → main` (and any `develop → main`): **Create a Merge Commit (`--no-ff`), NEVER squash.** Squash-merging into main collapses the shared commits into a brand-new commit with no ancestry link, so Git's merge base for the *next* release stays stuck at the old point and every changed file surfaces spurious `add/add` conflicts. A real merge commit preserves ancestry and keeps subsequent releases conflict-free.
+    - If a `release → main` merge ever shows conflicts on every changed file, the cause is a prior squash-merge into main breaking ancestry. Fix: branch the release off develop, `git merge --no-ff -X ours origin/main` into it (keeps develop's content, brings main's tip in as a parent so main becomes an ancestor), then open the release PR — it will be conflict-free — and merge it with a merge commit.
 - Commit messages should follow best practices and use the format: (feat:, chore:, fix:, docs:, refactor:) Examples:
     - `feat: add new widget for genre breakdown`
     - `chore: minor tasks like updating dependencies or fixing typos`
