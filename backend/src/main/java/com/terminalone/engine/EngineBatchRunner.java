@@ -24,15 +24,18 @@ public class EngineBatchRunner {
     private final RecommendationEngine engine;
     private final EngineBatchRunRepository batchRuns;
     private final SignalSnapshotRepository signalSnapshots;
+    private final RecommendationRepository recommendations;
     private final Clock clock;
 
     public EngineBatchRunner(RecommendationEngine engine,
             EngineBatchRunRepository batchRuns,
             SignalSnapshotRepository signalSnapshots,
+            RecommendationRepository recommendations,
             Clock clock) {
         this.engine = engine;
         this.batchRuns = batchRuns;
         this.signalSnapshots = signalSnapshots;
+        this.recommendations = recommendations;
         this.clock = clock;
     }
 
@@ -75,9 +78,16 @@ public class EngineBatchRunner {
         }
     }
 
-    public Optional<EngineBatchRunResponse> latestRun() {
-        return batchRuns.findTopByOrderByStartedAtDesc()
-                .map(EngineBatchRunResponse::from);
+    /**
+     * Latest scheduled EOD batch with its top-conviction recommendation, for the
+     * Phase 9 AC1 desktop notification. On-demand lever pulls are excluded —
+     * they happen in-app and must never become alert noise.
+     */
+    public Optional<EodBatchSummaryResponse> latestEodSummary() {
+        return batchRuns.findTopByKindOrderByStartedAtDesc(EngineBatchKind.SCHEDULED_EOD)
+                .map(run -> EodBatchSummaryResponse.from(run,
+                        recommendations.findFirstByBatchRunIdOrderByConvictionDescScoreDesc(run.getId())
+                                .orElse(null)));
     }
 
     private record BatchExecution(EngineBatchRun run, EngineRunResponse response) {

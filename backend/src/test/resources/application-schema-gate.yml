@@ -1,0 +1,23 @@
+# Schema gate profile: reproduces the production database contract exactly —
+# Flyway builds the schema, Hibernate only validates against it. Pinned here
+# rather than inherited from application.yml so the gate keeps asserting the
+# right thing even if the app defaults are changed later. The datasource is
+# supplied by the Testcontainers @ServiceConnection, not from config.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    # Production sets baseline-on-migrate for the pre-Flyway Railway database;
+    # the gate starts from an empty container, so every migration must run.
+    baseline-on-migrate: false
+
+app:
+  jwt:
+    secret: schema-gate-secret-key-at-least-thirty-two-bytes-long-000
+    expiration-minutes: 60
+    issuer: terminal-one-schema-gate
+  seed-user:
+    username: schemagate
+    password: schemagate

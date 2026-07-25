@@ -1,6 +1,6 @@
 {
   "name": "terminal-one-desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Terminal One — Electron thin client (neon trading cockpit)",
   "main": "out/main/index.js",
   "author": "mitchmele@gmail.com",
@@ -56,6 +56,7 @@
     ],
     "mac": {
       "category": "public.app-category.finance",
+      "identity": null,
       "target": "dmg"
     }
   }

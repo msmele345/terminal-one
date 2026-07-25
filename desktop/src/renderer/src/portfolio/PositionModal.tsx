@@ -3,7 +3,7 @@ import type { Position, PositionRequest } from '../../../preload'
 
 type Kind = 'STOCK' | 'OPTION'
 
-interface Props {
+interface PositionModalProps {
   initial?: Position
   onClose: () => void
   onSaved: () => void | Promise<void>
@@ -12,7 +12,7 @@ interface Props {
 
 // Add/edit a stock or option position. In edit mode the kind is fixed; in create
 // mode the operator toggles between the two and the option-only fields appear.
-export function PositionModal({ initial, onClose, onSaved, onError }: Props): JSX.Element {
+export function PositionModal({ initial, onClose, onSaved, onError }: PositionModalProps): JSX.Element {
   const editing = initial != null
   const [kind, setKind] = useState<Kind>(initial?.kind ?? 'STOCK')
   const [busy, setBusy] = useState(false)

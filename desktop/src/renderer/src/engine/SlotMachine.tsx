@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { EngineAbstention, Recommendation } from '../../../preload'
 import { RecommendationCard, formatLabel } from './RecommendationCard'
+import { ScreenState } from '../ui/ScreenState'
 
 type RunState = 'idle' | 'running' | 'done' | 'error'
 
@@ -9,6 +10,12 @@ type RunState = 'idle' | 'running' | 'done' | 'error'
 // runs the deterministic engine (POST /api/engine/run) and the reels spin, then
 // settle onto the returned top-N recommendations. No engine logic lives here —
 // the result rendering reuses the Phase 4–6 RecommendationCard verbatim.
+//
+// The machine sits on a "casino floor": a fixed ambient backdrop (canopy
+// spotlight, pit glow, drifting bokeh), a chasing-bulb marquee on the cabinet,
+// light spilling onto the floor beneath it, and a coin burst on jackpots. Every
+// decorative layer is aria-hidden, scoped under .slot-machine (AC5), animates
+// compositor-only (AC4), and falls back to a static scene under reduced motion.
 
 // Default top-N (OQ-6): the reel bank spins this many reels while the run is in
 // flight; the resolved cards are however many the engine actually returns.
@@ -26,6 +33,32 @@ const JACKPOT_CONVICTION = 80
 
 // Glyphs the reels tumble through while spinning — casino-meets-ticker.
 const REEL_GLYPHS = ['$', '▲', '▼', '◆', '★', '7', '↑', '↓', '⬢']
+
+// The room around the machine: out-of-focus neon from the rest of the floor.
+// Radial gradients give the blur for free, so the drift animates transform only.
+const BOKEH_ORBS: Array<{
+  size: number
+  left: string
+  top: string
+  tone: 'magenta' | 'cyan' | 'amber'
+  duration: number
+  delay: number
+}> = [
+  { size: 340, left: '4%', top: '8%', tone: 'magenta', duration: 15, delay: -2 },
+  { size: 220, left: '16%', top: '62%', tone: 'cyan', duration: 12, delay: -7 },
+  { size: 280, left: '78%', top: '10%', tone: 'amber', duration: 17, delay: -4 },
+  { size: 180, left: '68%', top: '70%', tone: 'magenta', duration: 11, delay: -9 },
+  { size: 260, left: '88%', top: '48%', tone: 'cyan', duration: 14, delay: -1 },
+  { size: 150, left: '38%', top: '4%', tone: 'amber', duration: 10, delay: -5 },
+  { size: 200, left: '30%', top: '86%', tone: 'amber', duration: 16, delay: -11 }
+]
+
+// Bulbs across the cabinet's marquee rail. The chase is a shared keyframe whose
+// phase is staggered by negative per-bulb delays (index-based — deterministic).
+const MARQUEE_BULBS = 24
+
+// Coins in the jackpot fountain.
+const COIN_COUNT = 18
 
 export function SlotMachine({
   minSpinMs = DEFAULT_MIN_SPIN_MS
@@ -64,13 +97,20 @@ export function SlotMachine({
   const jackpot = state === 'done' && recs.some((r) => r.conviction >= JACKPOT_CONVICTION)
 
   return (
-    <section className="console slot-machine" data-testid="slot-machine">
+    <section
+      className={`console slot-machine${spinning ? ' is-running' : ''}${jackpot ? ' is-jackpot' : ''}`}
+      data-testid="slot-machine"
+    >
+      <CasinoAmbience />
+
       <div className="console-bar">
         <h1 className="console-title">SLOT MACHINE</h1>
       </div>
 
       <div className={`slot-cabinet${jackpot ? ' is-jackpot' : ''}`}>
+        <Marquee />
         {jackpot && <JackpotBanner reducedMotion={reducedMotion} />}
+        {jackpot && !reducedMotion && <CoinBurst />}
 
         <div className="reels" data-testid="reels" aria-live="polite">
           {spinning &&
@@ -99,18 +139,98 @@ export function SlotMachine({
             </div>
           )}
 
-          {state === 'done' && recs.length === 0 && abstentions.length === 0 && (
-            <NoTrade reducedMotion={reducedMotion} />
+          {state === 'done' && recs.length === 0 && abstentions.length === 0 && <NoTrade />}
+
+          {state === 'error' && error && (
+            <ScreenState kind="error" title="Engine run failed" detail={error} glyph="×" />
           )}
         </div>
 
         <Lever onPull={pull} disabled={spinning} spinning={spinning} reducedMotion={reducedMotion} />
       </div>
 
-      {error && <p className="error">{error}</p>}
+      <div className="floor-spill" data-testid="floor-spill" aria-hidden="true" />
 
       {state === 'done' && abstentions.length > 0 && <Abstentions abstentions={abstentions} />}
     </section>
+  )
+}
+
+// The casino floor the machine sits on: a fixed light scene behind everything
+// (canopy spotlight from above, pit glow rising from the corners, vignette) plus
+// a handful of out-of-focus neon orbs drifting slowly — the rest of the floor,
+// blurred. Purely decorative, so aria-hidden and pointer-transparent; every
+// animation is compositor-only transform/opacity with a CSS backstop that holds
+// the scene still under prefers-reduced-motion.
+function CasinoAmbience(): JSX.Element {
+  return (
+    <div className="casino-ambience" data-testid="casino-ambience" aria-hidden="true">
+      {BOKEH_ORBS.map((orb, i) => (
+        <span
+          key={i}
+          className={`bokeh bokeh-${orb.tone}`}
+          style={{
+            width: orb.size,
+            height: orb.size,
+            left: orb.left,
+            top: orb.top,
+            animationDuration: `${orb.duration}s`,
+            animationDelay: `${orb.delay}s`
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+// The cabinet's marquee: a rail of warm bulbs chasing across the top edge, like
+// the attract lights on a real machine. Static (fully lit) under reduced motion.
+function Marquee(): JSX.Element {
+  return (
+    <div className="marquee" data-testid="marquee" aria-hidden="true">
+      {Array.from({ length: MARQUEE_BULBS }).map((_, i) => (
+        <span key={i} className="marquee-bulb" style={{ animationDelay: `${i * -90}ms` }} />
+      ))}
+    </div>
+  )
+}
+
+// The payout flourish: a finite fountain of coins raining over the cabinet when
+// the reels land a jackpot. Trajectories derive from the index (no Math.random —
+// the house is deterministic), the motion is transform/opacity only, and the
+// whole burst is skipped under reduced motion (the banner still announces it).
+function CoinBurst(): JSX.Element {
+  return (
+    <div className="coin-burst" data-testid="coin-burst" aria-hidden="true">
+      {Array.from({ length: COIN_COUNT }).map((_, i) => {
+        const dx = (((i * 97) % 41) - 20) * 13
+        const arc = -26 - (i % 4) * 12
+        const dy = 200 + ((i * 53) % 13) * 24
+        const spin = (i % 2 === 0 ? 1 : -1) * (160 + ((i * 29) % 6) * 40)
+        return (
+          <motion.span
+            key={i}
+            className="coin"
+            initial={{ x: 0, y: 0, opacity: 1, scale: 0.5, rotate: 0 }}
+            animate={{
+              x: [0, dx * 0.6, dx],
+              y: [0, arc, dy],
+              opacity: [1, 1, 0],
+              scale: [0.5, 1, 1],
+              rotate: [0, spin * 0.5, spin]
+            }}
+            transition={{
+              duration: 1.35 + ((i * 7) % 5) * 0.12,
+              delay: i * 0.045,
+              times: [0, 0.32, 1],
+              ease: ['easeOut', 'easeIn']
+            }}
+          >
+            {i % 3 === 0 ? '◆' : '$'}
+          </motion.span>
+        )
+      })}
+    </div>
   )
 }
 
@@ -277,33 +397,15 @@ function JackpotBannerBody(): JSX.Element {
 
 // AC2: the abstain / no-result landing. Deliberately calm — a soft fade-in, no
 // payout, no jarring motion — so "no trade" reads as a clean resolution.
-function NoTrade({ reducedMotion }: { reducedMotion: boolean }): JSX.Element {
-  const body = (
-    <>
-      <p className="empty-glyph">✧</p>
-      <p>No trade.</p>
-      <p className="muted">
-        The engine abstained — no qualifying setup across your portfolio right now.
-      </p>
-    </>
-  )
-  if (reducedMotion) {
-    return (
-      <div className="empty-state" data-testid="engine-empty">
-        {body}
-      </div>
-    )
-  }
+function NoTrade(): JSX.Element {
   return (
-    <motion.div
-      className="empty-state"
-      data-testid="engine-empty"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.4, ease: 'easeOut' }}
-    >
-      {body}
-    </motion.div>
+    <ScreenState
+      kind="empty"
+      title="No trade."
+      detail="The engine abstained — no qualifying setup across your portfolio right now."
+      glyph="✧"
+      testId="engine-empty"
+    />
   )
 }
 

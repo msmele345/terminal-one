@@ -24,6 +24,8 @@ GitHub integration. The Electron client is built/distributed separately (D13).
    | `JWT_EXPIRATION_MINUTES` | `720` (optional) |
    | `APP_USER_USERNAME` | your login |
    | `APP_USER_PASSWORD` | your password (seeded on first boot) |
+   | `MARKETDATA_TOKEN` | MarketData.app token for live delayed data |
+   | `ENGINE_EOD_CRON` | `0 30 16 * * MON-FRI` (optional; evaluated in America/New_York) |
 
    > `${{Postgres.*}}` is Railway's reference syntax — it pulls live values from the Postgres
    > plugin without copying secrets. `PORT` is injected automatically; the app reads it.
@@ -46,10 +48,11 @@ The backend service is connected to GitHub and **auto-deploys on push** to its c
 feature/* → PR → develop → PR → main → Railway redeploys production
 ```
 
-GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) runs the backend tests
-+ desktop build/lint/typecheck on every PR. Enabling **branch protection** on `main` (and
-`develop`) that requires the `backend` + `desktop` checks keeps red builds from merging — so in
-practice only tested code reaches the connected branch Railway deploys.
+GitHub Actions ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) runs backend tests and
+the desktop lint/typecheck/test/build gate on every PR. After both gates pass, a macOS runner
+builds and uploads the unsigned Apple Silicon DMG. Enabling **branch protection** on `main` (and
+`develop`) that requires the `backend`, `desktop`, and `macos-artifact` checks keeps red or
+unpackageable builds from merging — so in practice only tested code reaches production.
 
 > Note: Railway's native deploy and the Actions test gate run **independently** — Railway does not
 > wait for Actions unless you enable its **"Wait for CI"** setting (service Settings). For a
@@ -64,3 +67,4 @@ practice only tested code reaches the connected branch Railway deploys.
   startup. Never edit an applied migration — add a new `V{n}__*.sql`.
 - Engine config changes (later phases) are **data, not deploys** — see
   [`config-update-runbook.md`](config-update-runbook.md).
+- Desktop install and Gatekeeper steps are in [`macos-first-run.md`](macos-first-run.md).

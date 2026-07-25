@@ -48,11 +48,13 @@ function emptyPayload(): LedgerPayload {
 }
 
 let listSpy: ReturnType<typeof vi.fn>
+let takeSpy: ReturnType<typeof vi.fn>
 
 function installFakeApi(payload: LedgerPayload): void {
   listSpy = vi.fn(async () => ({ ok: true as const, data: payload }))
+  takeSpy = vi.fn(async () => ({ ok: true as const, data: {} }))
   // @ts-expect-error — partial stub of the preload surface for the test
-  window.api = { ledger: { list: listSpy } }
+  window.api = { ledger: { list: listSpy }, recommendations: { take: takeSpy } }
 }
 
 describe('LedgerScreen', () => {
@@ -62,7 +64,9 @@ describe('LedgerScreen', () => {
 
   it('shows the empty-state when there are no paper trades', async () => {
     render(<LedgerScreen />)
-    expect(await screen.findByTestId('empty-state')).toBeInTheDocument()
+    const state = await screen.findByTestId('empty-state')
+    expect(state).toHaveClass('screen-state', 'screen-state-empty')
+    expect(state).toHaveAttribute('role', 'status')
     expect(screen.getByText(/no paper trades yet/i)).toBeInTheDocument()
   })
 
@@ -155,7 +159,11 @@ describe('LedgerScreen', () => {
 
     render(<LedgerScreen />)
 
-    expect(await screen.findByText('Request failed (500)')).toBeInTheDocument()
+    const state = await screen.findByRole('alert')
+    expect(state).toHaveClass('screen-state', 'screen-state-error')
+    expect(within(state).getByText('Ledger unavailable')).toBeInTheDocument()
+    expect(within(state).getByText('Request failed (500)')).toBeInTheDocument()
+    expect(within(state).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
   })
 
   it('re-fetches with the selected config version and re-renders the filtered payload', async () => {
@@ -190,6 +198,82 @@ describe('LedgerScreen', () => {
 
     await waitFor(() => expect(listSpy).toHaveBeenCalledWith(2))
     await waitFor(() => expect(screen.getByText('TSLA')).toBeInTheDocument())
+  })
+
+  it('marks a paper recommendation as taken with a manual fill price, then re-loads', async () => {
+    const user = userEvent.setup()
+    const paper: LedgerPayload = {
+      entries: [entry({ id: 1, recommendationId: 42, recommendationStatus: 'PAPER', entryDebit: 3.5 })],
+      stats: stats({ totalTrades: 1, openTrades: 1 }),
+      configVersion: null,
+      configVersions: [1]
+    }
+    const afterTake: LedgerPayload = {
+      entries: [entry({ id: 1, recommendationId: 42, recommendationStatus: 'TAKEN', entryDebit: 3.5 })],
+      stats: stats({ totalTrades: 1, openTrades: 1 }),
+      configVersion: null,
+      configVersions: [1]
+    }
+
+    let call = 0
+    listSpy = vi.fn(async () => {
+      call += 1
+      return { ok: true as const, data: call === 1 ? paper : afterTake }
+    })
+    takeSpy = vi.fn(async () => ({ ok: true as const, data: {} }))
+    // @ts-expect-error — partial stub of the preload surface for the test
+    window.api = { ledger: { list: listSpy }, recommendations: { take: takeSpy } }
+
+    render(<LedgerScreen />)
+
+    await screen.findByTestId('ledger-row')
+    await user.click(screen.getByRole('button', { name: /mark taken/i }))
+
+    const input = screen.getByLabelText('Fill price for AAPL')
+    await user.clear(input)
+    await user.type(input, '3.65')
+    await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+    await waitFor(() => expect(takeSpy).toHaveBeenCalledWith(42, 3.65))
+    // Reloaded ledger now shows TAKEN and the take control is gone.
+    await waitFor(() => expect(screen.getByText('TAKEN')).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /mark taken/i })).toBeNull()
+  })
+
+  it('surfaces an error when the take fails and keeps the row as PAPER', async () => {
+    const user = userEvent.setup()
+    installFakeApi({
+      entries: [entry({ recommendationId: 7, recommendationStatus: 'PAPER' })],
+      stats: stats({ totalTrades: 1, openTrades: 1 }),
+      configVersion: null,
+      configVersions: [1]
+    })
+    takeSpy = vi.fn(async () => ({ ok: false as const, error: 'Recommendation 7 has already been taken' }))
+    // @ts-expect-error — partial stub of the preload surface for the test
+    window.api = { ledger: { list: listSpy }, recommendations: { take: takeSpy } }
+
+    render(<LedgerScreen />)
+
+    await screen.findByTestId('ledger-row')
+    await user.click(screen.getByRole('button', { name: /mark taken/i }))
+    await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+    expect(await screen.findByText(/already been taken/i)).toBeInTheDocument()
+  })
+
+  it('does not offer a take action on an already-taken recommendation', async () => {
+    installFakeApi({
+      entries: [entry({ recommendationStatus: 'TAKEN' })],
+      stats: stats({ totalTrades: 1, settledTrades: 1 }),
+      configVersion: null,
+      configVersions: [1]
+    })
+
+    render(<LedgerScreen />)
+
+    await screen.findByTestId('ledger-row')
+    expect(screen.queryByRole('button', { name: /mark taken/i })).toBeNull()
+    expect(screen.getByText('Taken')).toBeInTheDocument()
   })
 
   it('hides the config-version filter when 0-1 versions are present', async () => {

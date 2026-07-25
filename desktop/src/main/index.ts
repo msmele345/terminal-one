@@ -1,10 +1,13 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification, shell } from 'electron'
 import { join } from 'path'
 import keytar from 'keytar'
+import { EodBatchWatcher, type EodBatchSummary } from './eodNotifier'
+import { fetchBackend } from './backendTransport'
 
 // All HTTP to the backend happens here in the main process (Node, no CORS),
 // keeping the API base URL and the JWT out of the renderer entirely.
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://localhost:8080'
+declare const __DEFAULT_BACKEND_URL__: string
+const BACKEND_URL = process.env.BACKEND_URL ?? __DEFAULT_BACKEND_URL__
 const KEYCHAIN_SERVICE = 'terminal-one'
 const KEYCHAIN_ACCOUNT = 'session-jwt'
 
@@ -67,6 +70,7 @@ async function whoami() {
   if (res.status === 401) {
     // Stale/expired token — clear it so the UI returns to login.
     await keytar.deletePassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+    broadcastSessionExpired()
     return { ok: false as const, error: 'Session expired' }
   }
   if (!res.ok) return { ok: false as const, error: `Request failed (${res.status})` }
@@ -80,7 +84,13 @@ async function logout() {
 
 async function hasSession() {
   const token = await keytar.getPassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
-  return { loggedIn: token != null }
+  return { loggedIn: token != null, appVersion: app.getVersion() }
+}
+
+function broadcastSessionExpired(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('auth:session-expired')
+  }
 }
 
 // ---- Authenticated backend calls (portfolio) ----
@@ -90,12 +100,15 @@ async function hasSession() {
 async function authedFetch(path: string, init: RequestInit = {}) {
   const token = await keytar.getPassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
   if (!token) return { ok: false as const, error: 'Not authenticated' }
-  const res = await fetch(`${BACKEND_URL}${path}`, {
+  const transport = await fetchBackend(fetch, `${BACKEND_URL}${path}`, {
     ...init,
     headers: { ...(init.headers ?? {}), Authorization: `Bearer ${token}` }
   })
+  if (!transport.ok) return transport
+  const res = transport.response
   if (res.status === 401) {
     await keytar.deletePassword(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT)
+    broadcastSessionExpired()
     return { ok: false as const, error: 'Session expired' }
   }
   if (res.status === 204) return { ok: true as const, data: null }
@@ -164,6 +177,62 @@ async function ledgerList(configVersion?: number) {
   return authedFetch(`/api/ledger${query}`)
 }
 
+async function takeRecommendation(id: number, fillPrice: number) {
+  return authedFetch(`/api/recommendations/${id}/take`, {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ fillPrice })
+  })
+}
+
+async function takenPositions() {
+  return authedFetch('/api/recommendations/taken')
+}
+
+// ---- EOD desktop notification (Phase 9 AC1, FR-24/D20) ----
+
+// The backend runs the scheduled EOD batch in the cloud; the main process polls
+// its summary and fires exactly one native notification per newly completed
+// batch with recommendations. Clicking it deep-links into the Slot Machine.
+const EOD_POLL_INTERVAL_MS = 5 * 60_000
+
+async function fetchLatestEodBatch(): Promise<EodBatchSummary | null> {
+  const res = await authedFetch('/api/engine/eod/latest')
+  // Logged out / backend unreachable / no batch yet (204) all read as
+  // "nothing to report"; the watcher just tries again on the next poll.
+  if (!res.ok) return null
+  return res.data as EodBatchSummary | null
+}
+
+function openSlotMachine(): void {
+  let win = BrowserWindow.getAllWindows()[0]
+  if (!win) {
+    createWindow()
+    win = BrowserWindow.getAllWindows()[0]
+  }
+  if (!win) return
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  const send = (): void => win.webContents.send('nav:open-slot-machine')
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', send)
+  } else {
+    send()
+  }
+}
+
+function startEodNotificationWatcher(): void {
+  const watcher = new EodBatchWatcher(fetchLatestEodBatch, ({ title, body }) => {
+    if (!Notification.isSupported()) return
+    const notification = new Notification({ title, body })
+    notification.on('click', openSlotMachine)
+    notification.show()
+  })
+  void watcher.check() // baseline immediately so old batches never notify
+  setInterval(() => void watcher.check(), EOD_POLL_INTERVAL_MS)
+}
+
 function registerIpc(): void {
   ipcMain.handle('auth:login', (_e, username: string, password: string) => login(username, password))
   ipcMain.handle('auth:whoami', () => whoami())
@@ -178,11 +247,16 @@ function registerIpc(): void {
   ipcMain.handle('marketdata:history', (_e, symbol: string) => marketDataHistory(symbol))
   ipcMain.handle('engine:run', (_e, symbol?: string) => runEngine(symbol))
   ipcMain.handle('ledger:list', (_e, configVersion?: number) => ledgerList(configVersion))
+  ipcMain.handle('recommendations:take', (_e, id: number, fillPrice: number) =>
+    takeRecommendation(id, fillPrice)
+  )
+  ipcMain.handle('recommendations:taken', () => takenPositions())
 }
 
 app.whenReady().then(() => {
   registerIpc()
   createWindow()
+  startEodNotificationWatcher()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

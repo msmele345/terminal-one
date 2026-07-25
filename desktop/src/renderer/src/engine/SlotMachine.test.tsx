@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SlotMachine } from './SlotMachine'
 import type { EngineRunResult, Recommendation } from '../../../preload'
@@ -237,6 +237,54 @@ describe('SlotMachine', () => {
     expect(empty).toHaveTextContent(/no trade/i)
     expect(screen.queryByTestId('jackpot')).not.toBeInTheDocument()
     expect(screen.queryByTestId('reel-spinning')).not.toBeInTheDocument()
+  })
+
+  // ---- Casino-floor ambience (the room around the machine) ----
+
+  it('sets the casino-floor scene around the cabinet, all decorative and hidden from assistive tech', () => {
+    render(<SlotMachine minSpinMs={0} />)
+
+    // The room (backdrop + bokeh) and the cabinet's marquee are always present,
+    // and every decorative layer is aria-hidden so the screen reader experience
+    // is unchanged from the plain machine.
+    expect(screen.getByTestId('casino-ambience')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('marquee')).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByTestId('floor-spill')).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('marks the room with the run state — spinning, then jackpot — and rains coins on a high-conviction hit', async () => {
+    const user = userEvent.setup()
+    const gate = deferred<{ ok: true; data: EngineRunResult }>()
+    installEngineApi(vi.fn(() => gate.promise))
+
+    render(<SlotMachine minSpinMs={0} />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    // While the reels tumble, the room is in spin mode and no coins have fallen.
+    expect(screen.getByTestId('slot-machine')).toHaveClass('is-running')
+    expect(screen.queryByTestId('coin-burst')).not.toBeInTheDocument()
+
+    gate.resolve({ ok: true, data: { recommendations: [sampleRec({ conviction: 88 })] } })
+
+    expect(await screen.findByTestId('coin-burst')).toBeInTheDocument()
+    const machine = screen.getByTestId('slot-machine')
+    expect(machine).toHaveClass('is-jackpot')
+    expect(machine).not.toHaveClass('is-running')
+  })
+
+  it('pays out no coins for an ordinary-conviction run', async () => {
+    const user = userEvent.setup()
+    // sampleRec defaults to conviction 72 — below the High band (≥ 80).
+    installEngineApi(
+      vi.fn(async () => ({ ok: true as const, data: { recommendations: [sampleRec()] } }))
+    )
+
+    render(<SlotMachine minSpinMs={0} />)
+    await user.click(screen.getByRole('button', { name: /pull the lever/i }))
+
+    await screen.findByTestId('recommendation')
+    expect(screen.queryByTestId('coin-burst')).not.toBeInTheDocument()
+    expect(screen.getByTestId('slot-machine')).not.toHaveClass('is-jackpot')
   })
 
   // ---- Phase 7 AC3 ----
@@ -544,7 +592,9 @@ describe('SlotMachine', () => {
     render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
-    expect(await screen.findByTestId('engine-empty')).toBeInTheDocument()
+    const state = await screen.findByTestId('engine-empty')
+    expect(state).toHaveClass('screen-state', 'screen-state-empty')
+    expect(state).toHaveAttribute('role', 'status')
     expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
   })
 
@@ -556,7 +606,10 @@ describe('SlotMachine', () => {
     render(<SlotMachine minSpinMs={0} />)
     await user.click(screen.getByRole('button', { name: /pull the lever/i }))
 
-    await waitFor(() => expect(screen.getByText('Session expired')).toBeInTheDocument())
+    const state = await screen.findByRole('alert')
+    expect(state).toHaveClass('screen-state', 'screen-state-error')
+    expect(within(state).getByText('Engine run failed')).toBeInTheDocument()
+    expect(within(state).getByText('Session expired')).toBeInTheDocument()
     expect(screen.queryByTestId('recommendation')).not.toBeInTheDocument()
   })
 })

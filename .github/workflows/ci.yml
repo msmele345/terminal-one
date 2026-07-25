@@ -3,11 +3,15 @@ name: CI
 # Test gate (D12): backend tests + desktop build/lint/typecheck on PRs and pushes.
 # Deploys are handled by Railway's native GitHub integration (auto-deploy on push
 # to the connected branch), not by this workflow. See docs/deploy-railway.md.
+#
+# macOS packaging is deliberately NOT part of the per-push gate — see the
+# macos-artifact job for why.
 on:
   pull_request:
     branches: [main, develop]
   push:
     branches: [main, develop]
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -53,3 +57,40 @@ jobs:
         run: npm test
       - name: Build (electron-vite bundle)
         run: npm run build
+
+  # Packaging runs only where a build is actually wanted: a merge to main (what
+  # Railway deploys and what the DMG's embedded backend URL points at), or an
+  # explicit hand-trigger for testing packaging off a branch. It gates nothing,
+  # so running it on every develop/PR push bought no safety while occupying a
+  # macOS runner — the scarcest, slowest-queuing GitHub-hosted pool, and billed
+  # at 10x the Linux rate should this repo ever become private.
+  macos-artifact:
+    name: macOS artifact (unsigned arm64 DMG)
+    needs: [backend, desktop]
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: desktop
+    env:
+      BACKEND_URL: https://terminal-one-production.up.railway.app
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build unsigned Apple Silicon DMG
+        run: npm run dist -- --arm64 --publish never
+      - name: Upload installable DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-one-macos-arm64-${{ github.sha }}
+          path: desktop/release/*.dmg
+          if-no-files-found: error
+          retention-days: 14

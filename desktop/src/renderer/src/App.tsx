@@ -14,12 +14,14 @@ type Screen = 'console' | 'slotMachine' | 'ledger'
 export default function App(): JSX.Element {
   const [view, setView] = useState<View>('loading')
   const [screen, setScreen] = useState<Screen>('console')
+  const [appVersion, setAppVersion] = useState<string | null>(null)
   const [, setPayload] = useState<WhoamiPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // On boot, if a token sits in the keychain, try to use it.
   const refresh = useCallback(async () => {
-    const { loggedIn } = await window.api.session()
+    const { loggedIn, appVersion: currentVersion } = await window.api.session()
+    setAppVersion(currentVersion)
     if (!loggedIn) {
       setView('login')
       return
@@ -29,6 +31,9 @@ export default function App(): JSX.Element {
       setPayload(res.payload)
       setView('authed')
     } else {
+      if (res.error === 'Session expired') {
+        setError('Session expired. Sign in again.')
+      }
       setView('login')
     }
   }, [])
@@ -37,13 +42,35 @@ export default function App(): JSX.Element {
     void refresh()
   }, [refresh])
 
+  // Phase 9 AC1: a click on the post-EOD-batch desktop notification deep-links
+  // into the Slot Machine (the screen only renders once authenticated).
+  useEffect(() => {
+    return window.api.navigation.onOpenSlotMachine(() => setScreen('slotMachine'))
+  }, [])
+
+  // Phase 9 AC3: any authenticated request that discovers an expired JWT
+  // returns the entire app to the login seam instead of stranding a screen.
+  useEffect(() => {
+    return window.api.onSessionExpired(() => {
+      setPayload(null)
+      setScreen('console')
+      setError('Session expired. Sign in again.')
+      setView('login')
+    })
+  }, [])
+
   return (
     <div className="app">
       <Header
         authed={view === 'authed'}
+        appVersion={appVersion}
         screen={screen}
         onNavigate={setScreen}
-        onLogout={refresh}
+        onLogout={() => {
+          setScreen('console')
+          setError(null)
+          void refresh()
+        }}
       />
       <main className={view === 'authed' ? 'stage stage-wide' : 'stage'}>
         {view === 'loading' && <p className="muted">Booting terminal…</p>}
@@ -86,11 +113,13 @@ function renderScreen(screen: Screen): JSX.Element {
 
 function Header({
   authed,
+  appVersion,
   screen,
   onNavigate,
   onLogout
 }: {
   authed: boolean
+  appVersion: string | null
   screen: Screen
   onNavigate: (screen: Screen) => void
   onLogout: () => void
@@ -104,7 +133,9 @@ function Header({
       <div className="brand">
         <span className="brand-mark">◆</span>
         <span className="brand-name">TERMINAL&nbsp;ONE</span>
-        <span className="brand-tag">walking skeleton · v0.1</span>
+        <span className="brand-tag">
+          personal trading cockpit{appVersion ? ` · v${appVersion}` : ''}
+        </span>
       </div>
       {authed && (
         <nav className="screen-nav" aria-label="Screens">
@@ -177,7 +208,11 @@ function LoginCard({
           autoComplete="current-password"
         />
       </label>
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       <button className="primary-btn" type="submit" disabled={busy || !username || !password}>
         {busy ? 'Authenticating…' : 'Sign in'}
       </button>
